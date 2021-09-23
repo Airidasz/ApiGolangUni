@@ -2,7 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func JSONResponse(response interface{}, w http.ResponseWriter) {
@@ -16,52 +20,18 @@ func JSONResponse(response interface{}, w http.ResponseWriter) {
 	w.Write(json)
 }
 
-// var db *sql.DB
+var db *gorm.DB
 
 func main() {
-	// // Capture connection properties.
-	// cfg := mysql.Config{
-	// 	User:   "root",
-	// 	Passwd: "password",
-	// 	Net:    "tcp",
-	// 	Addr:   "127.0.0.1:3306",
-	// 	DBName: "testest",
-	// }
-	// // Get a database handle.
-	// var err error
-	// db, err = sql.Open("mysql", cfg.FormatDSN())
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	var err error
+	dsn := "root:password@tcp(127.0.0.1:3306)/testest?charset=utf8mb4&parseTime=True&loc=Local"
 
-	// pingErr := db.Ping()
-	// if pingErr != nil {
-	// 	log.Fatal(pingErr)
-	// }
-	// fmt.Println("Connected!")
+	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// var (
-	// 	a      string
-	// 	artist string
-	// )
-	// rows, err := db.Query("select * from album")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// defer rows.Close()
-	// for rows.Next() {
-	// 	err := rows.Scan(&a, &artist)
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	log.Println(a, artist)
-	// }
-	// err = rows.Err()
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
+	db.AutoMigrate(&user{}, &category{}, &shop{}, &location{}, &product{})
 
-	// defer rows.Close()
-
-	Routes()
+	//Routes()
 }
