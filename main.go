@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"regexp"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -21,8 +22,15 @@ func JSONResponse(response interface{}, w http.ResponseWriter) {
 }
 
 var db *gorm.DB
+var passwordRegex *regexp.Regexp
+var emailRegex *regexp.Regexp
+var signKey []byte
 
 func main() {
+	signKey = []byte("key")
+	passwordRegex = regexp.MustCompile(`([A-Z].*=?)([0-9].*=?)|([0-9].*=?)([A-Z].*=?)`)
+	emailRegex = regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+
 	var err error
 	dsn := "root:password@tcp(127.0.0.1:3306)/testest?charset=utf8mb4&parseTime=True&loc=Local"
 
@@ -31,7 +39,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	db.AutoMigrate(&user{}, &category{}, &shop{}, &location{}, &product{})
+	db.AutoMigrate(&User{}, &Category{}, &Shop{}, &Location{}, &Product{}, &RefreshToken{})
 
-	//Routes()
+	HandleRequests()
 }
