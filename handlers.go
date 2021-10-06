@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,9 +9,19 @@ import (
 
 	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm/clause"
 )
 
+func LandingPage(w http.ResponseWriter, r *http.Request) {
+	b := struct {
+		Make    string `json:"make"`
+		Model   string `json:"model"`
+		Mileage int    `json:"mileage"`
+	}{"Vienas", "Du", 1}
+
+	JSONResponse(b, w)
+}
+
+// =========================== Auth ===================================
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	//Creates a struct used to store data decoded from the body
 	requestData := struct {
@@ -28,7 +37,9 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	err := db.Take(&userDatabaseData, "email = ?", requestData.Email).Error
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "bad login information",
+		}, w)
 		return
 	}
 
@@ -36,17 +47,18 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	//checks if salted hashed password from database matches the sent in salted hashed password
 	if hashedPassword != userDatabaseData.Password {
 		w.WriteHeader(http.StatusUnauthorized)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "bad login information",
+		}, w)
 		return
 	}
 
-	MakeTokens(w, requestData.Email)
+	MakeTokens(w, userDatabaseData)
 
 	w.WriteHeader(http.StatusAccepted)
-	JSONResponse(struct{}{}, w)
 }
 
-//RegisterPageHandler decodes user sent in data, verifies that
+//CreateAccountHandler decodes user sent in data, verifies that
 //it is formatted correctly, and tries to create an account in
 //the database
 func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
@@ -59,13 +71,20 @@ func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&requestData)
 	if err != nil {
-		JSONResponse(struct{}{}, w)
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: err.Error(),
+		}, w)
 		return
 	}
 
-	err = CheckIfPasswordValid(requestData.Password, requestData.RepeatPassword)
+	res, err := PerformUserDataChecks(requestData.Email, requestData.Password, requestData.RepeatPassword)
+
+	w.WriteHeader(res)
 	if err != nil {
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: err.Error(),
+		}, w)
 		return
 	}
 
@@ -94,13 +113,17 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, err.Error())
+			JSONResponse(ErrorJSON{
+				Message: err.Error(),
+			}, w)
 			return
 		}
 
 		if !token.Valid {
 			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, err.Error())
+			JSONResponse(ErrorJSON{
+				Message: err.Error(),
+			}, w)
 			return
 		}
 
@@ -112,28 +135,50 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		if oldRefreshToken.DeletedAt.Valid {
 			db.Delete(&RefreshToken{}, "email = ?", email)
 			w.WriteHeader(http.StatusForbidden)
+			JSONResponse(ErrorJSON{
+				Message: "expired token",
+			}, w)
 			return
 		}
 
 		if exp, ok := claims["exp"].(int64); ok && exp > time.Now().Unix() {
 			w.WriteHeader(http.StatusUnauthorized)
+			JSONResponse(ErrorJSON{
+				Message: "expired token",
+			}, w)
 			return
 		}
 
 		db.Delete(&oldRefreshToken)
 
-		MakeTokens(w, email)
+		var user User
+		db.Take(&user, "email = ?", email)
+
+		MakeTokens(w, user)
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 
 	w.WriteHeader(http.StatusUnauthorized)
-	JSONResponse(struct{}{}, w)
+	JSONResponse(ErrorJSON{
+		Message: "unauthorized",
+	}, w)
 }
 
+// ===================================================================
+
+// =========================== Shop ===================================
 func GetShopsHandler(w http.ResponseWriter, r *http.Request) {
+	keys := r.URL.Query()
+	userID, err := strconv.Atoi(keys.Get("userid"))
+
+	tx := db.Model(&Shop{})
+	if err == nil && userID > 0 {
+		tx.Where("user_id = ?", userID)
+	}
+
 	var shops []Shop
-	db.Find(&shops)
+	tx.Find(&shops)
 	JSONResponse(shops, w)
 }
 
@@ -143,22 +188,91 @@ func GetShopHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "bad shop id",
+		}, w)
 		return
 	}
 
 	var shop Shop
-	db.Preload(clause.Associations).Take(&shop, shopID)
+	if db.Take(&shop, shopID).Error != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	JSONResponse(&shop, w)
 }
 
+func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
+	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
+	email := fmt.Sprintf("%v", claims["email"])
+
+	var requestInfo Shop
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
+	var user User
+	db.Take(&user, "email = ?", email)
+
+	requestInfo.User = user
+	db.Create(&requestInfo)
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func UpdateShopHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopID, _ := strconv.Atoi(params["shopid"])
+
+	var requestInfo Shop
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
+	tx := db.Model(&Shop{}).Where("id = ?", shopID)
+
+	if requestInfo.Name != "" {
+		tx.Updates(Shop{Name: requestInfo.Name})
+	}
+
+	if requestInfo.Description != "" {
+		tx.Updates(Shop{Description: requestInfo.Description})
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func DeleteShopHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopID, _ := strconv.Atoi(params["shopid"])
+
+	db.Unscoped().Select("Locations", "Products").Delete(&Shop{}, shopID)
+}
+
+// ===================================================================
+
+// ========================== Locations ==============================
 func GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	shopID, err := strconv.Atoi(params["shopid"])
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "bad shop id",
+		}, w)
 		return
 	}
 
@@ -167,13 +281,84 @@ func GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	JSONResponse(locations, w)
 }
 
+func GetLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	locationID, _ := strconv.Atoi(params["locationid"])
+
+	var location Location
+
+	if db.Take(&location, locationID).Error != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	JSONResponse(&location, w)
+}
+
+func CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopID, _ := strconv.Atoi(params["shopid"])
+
+	var requestInfo Location
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
+	requestInfo.ShopID = uint(shopID)
+	db.Create(&requestInfo)
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	locationID, _ := strconv.Atoi(params["locationid"])
+
+	var requestInfo Location
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
+	tx := db.Model(&Location{}).Where("id = ?", locationID)
+
+	if requestInfo.Coordinates != "" {
+		tx.Updates(Location{Coordinates: requestInfo.Coordinates})
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func DeleteLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	locationID, _ := strconv.Atoi(params["locationid"])
+
+	db.Delete(&Location{}, locationID)
+}
+
+// ===================================================================
+
+// ========================== Products ==============================
 func GetProductsHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	shopID, err := strconv.Atoi(params["shopid"])
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "bad shop id",
+		}, w)
 		return
 	}
 
@@ -182,53 +367,199 @@ func GetProductsHandler(w http.ResponseWriter, r *http.Request) {
 	JSONResponse(products, w)
 }
 
-func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
-	email := fmt.Sprintf("%v", r.Context().Value(ctxKey{}))
+func GetProductHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	productID, _ := strconv.Atoi(params["productid"])
 
-	var user User
-	db.Take(&user, "email = ?", email)
+	var product Product
 
-	var requestInfo Shop
+	if db.Take(&product, productID).Error != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	JSONResponse(&product, w)
+}
+
+func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopID, _ := strconv.Atoi(params["shopid"])
+
+	requestInfo := struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Categories  []int  `json:"categories"`
+	}{"", "", nil}
+
 	err := json.NewDecoder(r.Body).Decode(&requestInfo)
 
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(struct{}{}, w)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
 		return
 	}
 
-	requestInfo.User = user
+	var categories []Category
+	db.Find(&categories, requestInfo.Categories)
+
+	newShop := Product{
+		Name:        requestInfo.Name,
+		Description: requestInfo.Description,
+		ShopID:      uint(shopID),
+		Categories:  categories,
+	}
+	db.Create(&newShop)
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	productID, _ := strconv.Atoi(params["productid"])
+
+	requestInfo := struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Categories  []int  `json:"categories"`
+	}{"", "", nil}
+
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
+	var product Product
+	db.Preload("Categories").Take(&product, productID)
+
+	if requestInfo.Name != "" {
+		db.Model(&product).Updates(Product{Name: requestInfo.Name})
+	}
+
+	if requestInfo.Description != "" {
+		db.Model(&product).Updates(Product{Description: requestInfo.Description})
+	}
+
+	if len(requestInfo.Categories) > 0 {
+		var categories []Category
+		db.Find(&categories, requestInfo.Categories)
+
+		db.Model(&product).Association("Categories").Delete(&product.Categories)
+		db.Model(&product).Association("Categories").Append(&categories)
+
+		db.Model(&product).Updates(Product{Categories: categories})
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func DeleteProductHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	productID, _ := strconv.Atoi(params["productid"])
+
+	var product Product
+	db.Preload("Categories").Take(&product, productID)
+
+	db.Model(&product).Association("Categories").Delete(&product.Categories)
+	db.Delete(&product)
+}
+
+// ===================================================================
+
+// ========================== Categories ==============================
+func GetCategoriesHandler(w http.ResponseWriter, r *http.Request) {
+	var categories []Category
+	db.Find(&categories)
+	JSONResponse(categories, w)
+}
+
+func GetCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	caregoryID, err := strconv.Atoi(params["categoryid"])
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "bad category id",
+		}, w)
+		return
+	}
+
+	var category Category
+
+	if db.Take(&category, caregoryID).Error != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	JSONResponse(&category, w)
+}
+
+func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	var requestInfo Category
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
+
 	db.Create(&requestInfo)
 
 	w.WriteHeader(http.StatusCreated)
-	JSONResponse(struct{}{}, w)
 }
 
-//checks that, while registering a new account that
-//the provided password matches the repeated password, is atleast 8 characters long and
-//contains at least one number and one capital letter
-func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
-	if passwordOne != passwordTwo {
-		return errors.New("passwords do not match")
+func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	categoryID, err := strconv.Atoi(params["categoryid"])
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "bad category id",
+		}, w)
+		return
 	}
 
-	// if len(passwordOne) < 8 {
-	// 	return errors.New("passwords too short")
-	// }
+	var requestInfo Category
+	err = json.NewDecoder(r.Body).Decode(&requestInfo)
 
-	// if !passwordRegex.MatchString(passwordOne) {
-	// 	return errors.New("passwords needs to contain at least one number and one capital letter")
-	// }
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "json parse error",
+		}, w)
+		return
+	}
 
-	return nil
+	tx := db.Model(&Category{}).Where("id = ?", categoryID)
+
+	if requestInfo.Name != "" {
+		tx.Updates(Shop{Name: requestInfo.Name})
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
-func LandingPage(w http.ResponseWriter, r *http.Request) {
-	b := struct {
-		Make    string `json:"make"`
-		Model   string `json:"model"`
-		Mileage int    `json:"mileage"`
-	}{"Ford", "Taurus", 2000010}
+func DeleteCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	caregoryID, err := strconv.Atoi(params["categoryid"])
 
-	JSONResponse(b, w)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "bad category id",
+		}, w)
+		return
+	}
+
+	db.Unscoped().Delete(&Category{}, caregoryID)
 }
