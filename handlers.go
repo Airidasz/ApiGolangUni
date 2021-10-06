@@ -97,6 +97,7 @@ func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 		Salt:     salt,
 	}
 	db.Save(&newUser)
+	w.WriteHeader(http.StatusCreated)
 }
 
 func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +197,7 @@ func GetShopHandler(w http.ResponseWriter, r *http.Request) {
 
 	var shop Shop
 	if db.Take(&shop, shopID).Error != nil {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	JSONResponse(&shop, w)
@@ -288,7 +289,7 @@ func GetLocationHandler(w http.ResponseWriter, r *http.Request) {
 	var location Location
 
 	if db.Take(&location, locationID).Error != nil {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
@@ -374,7 +375,7 @@ func GetProductHandler(w http.ResponseWriter, r *http.Request) {
 	var product Product
 
 	if db.Take(&product, productID).Error != nil {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	JSONResponse(&product, w)
