@@ -21,7 +21,7 @@ type Shop struct {
 	Name        string     `json:"name" gorm:"size:100;not null"`
 	Description string     `json:"description" gorm:"not null"`
 	User        User       `json:"-" gorm:"foreignkey:UserID;not null"`
-	UserID      uint       `json:"-"`
+	UserID      uint       `json:"userID"`
 	Locations   []Location `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
 	Products    []Product  `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
 }
@@ -31,7 +31,7 @@ type Product struct {
 	Name        string     `json:"name" gorm:"size:100;not null"`
 	Description string     `json:"description" gorm:"not null"`
 	ShopID      uint       `json:"-"`
-	Categories  []Category `json:"-" gorm:"many2many:product_categories;"`
+	Categories  []Category `json:"categories" gorm:"many2many:product_categories;"`
 }
 
 type Location struct {

@@ -56,6 +56,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	MakeTokens(w, userDatabaseData)
 
 	w.WriteHeader(http.StatusAccepted)
+	JSONResponse(userDatabaseData, w)
 }
 
 //CreateAccountHandler decodes user sent in data, verifies that
@@ -364,7 +365,7 @@ func GetProductsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var products []Product
-	db.Where("shop_id = ?", shopID).Find(&products)
+	db.Preload("Categories").Where("shop_id = ?", shopID).Find(&products)
 	JSONResponse(products, w)
 }
 

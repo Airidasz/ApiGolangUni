@@ -1,3 +1,4 @@
 .env
 Dockerfile
+Dockerfile copy
 docker-compose.yaml
