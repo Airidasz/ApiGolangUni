@@ -73,7 +73,7 @@ func MakeTokens(w http.ResponseWriter, user User) {
 		"exp":   time.Now().Add(time.Hour).Unix(),
 	}
 	accessToken, _ := GenerateToken(accessClaims)
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60*60})
 
 	refreshClaims := map[string]interface{}{
 		"email": user.Email,
@@ -88,7 +88,7 @@ func MakeTokens(w http.ResponseWriter, user User) {
 	}
 	db.Create(&refreshDatabaseEntry)
 
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken})
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true})
 }
 
 //GenerateSalt creates a pseudorandom salt used in password salting
