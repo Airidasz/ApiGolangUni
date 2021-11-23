@@ -226,6 +226,7 @@ func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
 	db.Create(&requestInfo)
 
 	w.WriteHeader(http.StatusCreated)
+	JSONResponse(requestInfo, w)
 }
 
 func UpdateShopHandler(w http.ResponseWriter, r *http.Request) {
@@ -332,12 +333,12 @@ func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
 		}, w)
 		return
 	}
+	// tx := 
+	db.Model(&Location{}).Where("id = ?", locationID)
 
-	tx := db.Model(&Location{}).Where("id = ?", locationID)
-
-	if requestInfo.Coordinates != "" {
-		tx.Updates(Location{Coordinates: requestInfo.Coordinates})
-	}
+	// if requestInfo.Coordinates != "" {
+	// 	tx.Updates(Location{Coordinates: requestInfo.Coordinates})
+	// }
 
 	w.WriteHeader(http.StatusOK)
 }
