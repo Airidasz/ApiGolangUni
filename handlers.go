@@ -404,7 +404,9 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var categories []Category
-	db.Find(&categories, requestInfo.Categories)
+	if len(requestInfo.Categories) > 0 {
+		db.Find(&categories, requestInfo.Categories)
+	}
 
 	newShop := Product{
 		Name:        requestInfo.Name,

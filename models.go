@@ -36,6 +36,7 @@ type Product struct {
 
 type Location struct {
 	ID          uint   `json:"id"`
+	Type string `json:"type"  gorm:"size:30;not null"`
 	Lat float32 `json:"lat"  gorm:"not null"`
 	Lng float32 `json:"lng"  gorm:"not null"`
 	ShopID      uint   `json:"-"`

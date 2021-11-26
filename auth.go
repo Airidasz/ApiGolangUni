@@ -68,6 +68,7 @@ func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 
 func MakeTokens(w http.ResponseWriter, user User) {
 	accessClaims := map[string]interface{}{
+		"id": user.ID,
 		"email": user.Email,
 		"admin": user.Admin,
 		"exp":   time.Now().Add(time.Hour).Unix(),
@@ -76,6 +77,7 @@ func MakeTokens(w http.ResponseWriter, user User) {
 	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60*60})
 
 	refreshClaims := map[string]interface{}{
+		"id": user.ID,
 		"email": user.Email,
 		"admin": user.Admin,
 		"exp":   time.Now().Add(time.Hour * 24 * 7).Unix(),
@@ -88,7 +90,7 @@ func MakeTokens(w http.ResponseWriter, user User) {
 	}
 	db.Create(&refreshDatabaseEntry)
 
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7 })
 }
 
 //GenerateSalt creates a pseudorandom salt used in password salting
