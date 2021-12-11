@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
 func HandleRequests() {
@@ -13,6 +15,7 @@ func HandleRequests() {
 
 	// ========================== Auth ==============================
 	r.HandleFunc("/login", LoginHandler).Methods("POST")
+	r.HandleFunc("/logout", LogoutHandler).Methods("POST")
 	r.HandleFunc("/register", CreateAccountHandler).Methods("POST")
 	r.HandleFunc("/refresh", RefreshTokenHandler).Methods("POST")
 
@@ -27,6 +30,7 @@ func HandleRequests() {
 	r.HandleFunc("/shop/{shopid}/locations", GetLocationsHandler).Methods("GET")
 	r.Handle("/shop/{shopid}/location/{locationid}", shopLocationValid(GetLocationHandler)).Methods("GET")
 	r.Handle("/shop/{shopid}/locations", isAuthorized(isShopOwner(CreateLocationHandler))).Methods("POST")
+	r.Handle("/shop/{shopid}/locations", isAuthorized(isShopOwner(DeleteLocationsHandler))).Methods("DELETE")
 	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(isShopOwner(shopLocationValid(UpdateLocationHandler)))).Methods("PUT")
 	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(isShopOwner(shopLocationValid(DeleteLocationHandler)))).Methods("DELETE")
 
@@ -45,5 +49,16 @@ func HandleRequests() {
 	r.Handle("/category/{categoryid}", isAdmin(DeleteCategoryHandler)).Methods("DELETE")
 
 	fmt.Println("Opened a server on port :8080")
-	http.ListenAndServe(":8080", r)
+
+	c := cors.New(cors.Options{
+        AllowedOrigins: []string{"http://localhost:3000", os.Getenv("API_URL")},
+        AllowCredentials: true,
+		AllowedMethods: []string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"},
+		OptionsPassthrough: true,
+		ExposedHeaders: []string{"Set-Cookie"},
+    })
+
+    handler := c.Handler(r)
+
+	http.ListenAndServe(":8080", handler)
 }

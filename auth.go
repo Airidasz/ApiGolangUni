@@ -21,7 +21,7 @@ import (
 func CheckEmailAvailability(email string) error {
 	//if no record of the email is found, returns an error
 	if db.Find(&User{}, "email = ?", email).RowsAffected > 0 {
-		return errors.New("user with same email exists")
+		return errors.New("this email is taken")
 	}
 
 	return nil
@@ -31,7 +31,7 @@ func CheckEmailAvailability(email string) error {
 //is correctly formatted
 func PerformUserDataChecks(email string, password string, repeatedPassword string) (httpStatus int, err error) {
 	if !emailRegex.MatchString(email) {
-		return http.StatusNotAcceptable, errors.New("bad email format")
+		return http.StatusNotAcceptable, errors.New("please enter a valid email")
 	}
 
 	err = CheckEmailAvailability(email)
@@ -66,7 +66,8 @@ func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 	return nil
 }
 
-func MakeTokens(w http.ResponseWriter, user User) {
+
+func MakeTokens(w http.ResponseWriter, user User) (string, string){
 	accessClaims := map[string]interface{}{
 		"id": user.ID,
 		"email": user.Email,
@@ -74,7 +75,7 @@ func MakeTokens(w http.ResponseWriter, user User) {
 		"exp":   time.Now().Add(time.Hour).Unix(),
 	}
 	accessToken, _ := GenerateToken(accessClaims)
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60*60})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode , Secure: true})
 
 	refreshClaims := map[string]interface{}{
 		"id": user.ID,
@@ -90,7 +91,9 @@ func MakeTokens(w http.ResponseWriter, user User) {
 	}
 	db.Create(&refreshDatabaseEntry)
 
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7 })
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7, SameSite: http.SameSiteNoneMode , Secure: true })
+
+	return accessToken, refreshToken
 }
 
 //GenerateSalt creates a pseudorandom salt used in password salting
@@ -139,7 +142,7 @@ func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusUnauthorized)
 		JSONResponse(ErrorJSON{
-			Message: "not authorized",
+			Message: "unauthorized",
 		}, w)
 
 	})
@@ -224,7 +227,7 @@ func isShopOwner(next http.HandlerFunc) http.HandlerFunc {
 		if shop.User.Email != email {
 			w.WriteHeader(http.StatusUnauthorized)
 			JSONResponse(ErrorJSON{
-				Message: "not authorized",
+				Message: "unauthorized",
 			}, w)
 			return
 		}
@@ -262,7 +265,7 @@ func isAuthorized(next http.HandlerFunc) http.HandlerFunc {
 
 		w.WriteHeader(http.StatusUnauthorized)
 		JSONResponse(ErrorJSON{
-			Message: "not authorized",
+			Message: "unauthorized",
 		}, w)
 
 	})

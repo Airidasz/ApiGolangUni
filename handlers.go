@@ -46,17 +46,25 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	hashedPassword := GenerateSecurePassword(requestData.Password, userDatabaseData.Salt)
 	//checks if salted hashed password from database matches the sent in salted hashed password
 	if hashedPassword != userDatabaseData.Password {
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "bad login information",
 		}, w)
 		return
 	}
-
-	MakeTokens(w, userDatabaseData)
+	accessToken, _ := MakeTokens(w, userDatabaseData)
 
 	w.WriteHeader(http.StatusAccepted)
-	JSONResponse(userDatabaseData, w)
+	JSONResponse(struct{
+		AccessToken string `json:accessToken`
+	}{accessToken}, w)
+}
+
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode , Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode , Secure: true})
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 //CreateAccountHandler decodes user sent in data, verifies that
@@ -138,7 +146,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 			db.Delete(&RefreshToken{}, "email = ?", email)
 			w.WriteHeader(http.StatusForbidden)
 			JSONResponse(ErrorJSON{
-				Message: "expired token",
+				Message: "token expired",
 			}, w)
 			return
 		}
@@ -146,7 +154,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		if exp, ok := claims["exp"].(int64); ok && exp > time.Now().Unix() {
 			w.WriteHeader(http.StatusUnauthorized)
 			JSONResponse(ErrorJSON{
-				Message: "expired token",
+				Message: "token expired",
 			}, w)
 			return
 		}
@@ -156,8 +164,13 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		var user User
 		db.Take(&user, "email = ?", email)
 
-		MakeTokens(w, user)
+		accessToken , _ := MakeTokens(w, user)
+		
 		w.WriteHeader(http.StatusAccepted)
+		JSONResponse(struct{
+			AccessToken string `json:accessToken`
+		}{accessToken}, w)
+	
 		return
 	}
 
@@ -214,7 +227,15 @@ func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
+		}, w)
+		return
+	}
+
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "shop name cannot be empty",
 		}, w)
 		return
 	}
@@ -239,7 +260,15 @@ func UpdateShopHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
+		}, w)
+		return
+	}
+
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "shop name cannot be empty",
 		}, w)
 		return
 	}
@@ -308,7 +337,7 @@ func CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
 		}, w)
 		return
 	}
@@ -317,6 +346,12 @@ func CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
 	db.Create(&requestInfo)
 
 	w.WriteHeader(http.StatusCreated)
+}
+func DeleteLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopID, _ := strconv.Atoi(params["shopid"])
+
+	db.Where("shop_id = ?", shopID).Delete(&Location{})
 }
 
 func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
@@ -329,7 +364,7 @@ func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
 		}, w)
 		return
 	}
@@ -376,7 +411,7 @@ func GetProductHandler(w http.ResponseWriter, r *http.Request) {
 
 	var product Product
 
-	if db.Take(&product, productID).Error != nil {
+	if db.Preload("Categories").Take(&product, productID).Error != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -398,7 +433,7 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
 		}, w)
 		return
 	}
@@ -408,13 +443,21 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 		db.Find(&categories, requestInfo.Categories)
 	}
 
-	newShop := Product{
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "product name cannot be empty",
+		}, w)
+		return
+	}
+
+	newProduct := Product{
 		Name:        requestInfo.Name,
 		Description: requestInfo.Description,
 		ShopID:      uint(shopID),
 		Categories:  categories,
 	}
-	db.Create(&newShop)
+	db.Create(&newProduct)
 
 	w.WriteHeader(http.StatusCreated)
 }
@@ -434,7 +477,15 @@ func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
+		}, w)
+		return
+	}
+
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "product name cannot be empty",
 		}, w)
 		return
 	}
@@ -450,15 +501,15 @@ func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
 		db.Model(&product).Updates(Product{Description: requestInfo.Description})
 	}
 
+	var categories []Category
+	db.Find(&categories, requestInfo.Categories)
+	db.Model(&product).Association("Categories").Delete(&product.Categories)
+
 	if len(requestInfo.Categories) > 0 {
-		var categories []Category
-		db.Find(&categories, requestInfo.Categories)
-
-		db.Model(&product).Association("Categories").Delete(&product.Categories)
-		db.Model(&product).Association("Categories").Append(&categories)
-
-		db.Model(&product).Updates(Product{Categories: categories})
+		db.Model(&product).Association("Categories").Append(&categories)	
 	}
+	
+	db.Model(&product).Updates(Product{Categories: categories})
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -467,11 +518,7 @@ func DeleteProductHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	productID, _ := strconv.Atoi(params["productid"])
 
-	var product Product
-	db.Preload("Categories").Take(&product, productID)
-
-	db.Model(&product).Association("Categories").Delete(&product.Categories)
-	db.Delete(&product)
+	db.Unscoped().Delete(&Product{}, productID)
 }
 
 // ===================================================================
@@ -498,7 +545,7 @@ func GetCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	var category Category
 
 	if db.Take(&category, caregoryID).Error != nil {
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
@@ -512,7 +559,15 @@ func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
+		}, w)
+		return
+	}
+
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "category name cannot be empty",
 		}, w)
 		return
 	}
@@ -540,7 +595,15 @@ func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: "json parse error",
+			Message: err.Error(),
+		}, w)
+		return
+	}
+
+	if(len(requestInfo.Name) <= 0){
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: "category name cannot be empty",
 		}, w)
 		return
 	}

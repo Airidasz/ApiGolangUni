@@ -30,8 +30,8 @@ type Product struct {
 	ID          uint       `json:"id"`
 	Name        string     `json:"name" gorm:"size:100;not null"`
 	Description string     `json:"description" gorm:"not null"`
-	ShopID      uint       `json:"-"`
-	Categories  []Category `json:"categories" gorm:"many2many:product_categories;"`
+	ShopID      uint       `json:"shopID"`
+	Categories  []Category `json:"categories" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
 }
 
 type Location struct {
@@ -45,6 +45,7 @@ type Location struct {
 type Category struct {
 	ID   uint   `json:"id"`
 	Name string `json:"name" gorm:"size:100;not null"`
+	Products  []Product `json:"-" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
 }
 
 type RefreshToken struct {
