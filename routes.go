@@ -51,7 +51,7 @@ func HandleRequests() {
 	fmt.Println("Opened a server on port :8080")
 
 	c := cors.New(cors.Options{
-        AllowedOrigins: []string{"http://localhost:3000", os.Getenv("API_URL")},
+        AllowedOrigins: []string{"http://localhost:3000", os.Getenv("API_URL"),"http://localhost"},
         AllowCredentials: true,
 		AllowedMethods: []string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"},
 		OptionsPassthrough: true,

@@ -351,7 +351,12 @@ func DeleteLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	shopID, _ := strconv.Atoi(params["shopid"])
 
-	db.Where("shop_id = ?", shopID).Delete(&Location{})
+	err := db.Where("shop_id = ?", shopID).Delete(&Location{}).Error
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
