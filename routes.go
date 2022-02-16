@@ -11,8 +11,10 @@ import (
 
 func HandleRequests() {
 	r := mux.NewRouter()
-	r.HandleFunc("/", LandingPage)
 
+	r.PathPrefix("/images/").Handler(http.FileServer(http.Dir(".")))
+
+	r.HandleFunc("/", LandingPage)
 	// ========================== Auth ==============================
 	r.HandleFunc("/login", LoginHandler).Methods("POST")
 	r.HandleFunc("/logout", LogoutHandler).Methods("POST")
@@ -51,14 +53,14 @@ func HandleRequests() {
 	fmt.Println("Opened a server on port :8080")
 
 	c := cors.New(cors.Options{
-        AllowedOrigins: []string{"http://localhost:3000", os.Getenv("API_URL")},
-        AllowCredentials: true,
-		AllowedMethods: []string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"},
+		AllowedOrigins:     []string{"http://localhost:3000", os.Getenv("API_URL"), "http://localhost"},
+		AllowCredentials:   true,
+		AllowedMethods:     []string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"},
 		OptionsPassthrough: true,
-		ExposedHeaders: []string{"Set-Cookie"},
-    })
+		ExposedHeaders:     []string{"Set-Cookie"},
+	})
 
-    handler := c.Handler(r)
+	handler := c.Handler(r)
 
 	http.ListenAndServe(":8080", handler)
 }

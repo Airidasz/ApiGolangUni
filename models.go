@@ -35,17 +35,18 @@ type Product struct {
 }
 
 type Location struct {
-	ID          uint   `json:"id"`
-	Type string `json:"type"  gorm:"size:30;not null"`
-	Lat float32 `json:"lat"  gorm:"not null"`
-	Lng float32 `json:"lng"  gorm:"not null"`
-	ShopID      uint   `json:"-"`
+	ID     uint    `json:"id"`
+	Type   string  `json:"type"  gorm:"size:30;not null"`
+	Lat    float32 `json:"lat"  gorm:"not null"`
+	Lng    float32 `json:"lng"  gorm:"not null"`
+	ShopID uint    `json:"-"`
 }
 
 type Category struct {
-	ID   uint   `json:"id"`
-	Name string `json:"name" gorm:"size:100;not null"`
-	Products  []Product `json:"-" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
+	ID       uint      `json:"id"`
+	Name     string    `json:"name" gorm:"size:100;not null"`
+	File     string    `json:"file" gorm:"size:500"`
+	Products []Product `json:"-" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
 }
 
 type RefreshToken struct {

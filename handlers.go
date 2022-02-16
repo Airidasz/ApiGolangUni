@@ -55,14 +55,14 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	accessToken, _ := MakeTokens(w, userDatabaseData)
 
 	w.WriteHeader(http.StatusAccepted)
-	JSONResponse(struct{
+	JSONResponse(struct {
 		AccessToken string `json:accessToken`
 	}{accessToken}, w)
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode , Secure: true})
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode , Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode, Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: "a", MaxAge: -1, SameSite: http.SameSiteNoneMode, Secure: true})
 
 	w.WriteHeader(http.StatusAccepted)
 }
@@ -164,13 +164,13 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		var user User
 		db.Take(&user, "email = ?", email)
 
-		accessToken , _ := MakeTokens(w, user)
-		
+		accessToken, _ := MakeTokens(w, user)
+
 		w.WriteHeader(http.StatusAccepted)
-		JSONResponse(struct{
+		JSONResponse(struct {
 			AccessToken string `json:accessToken`
 		}{accessToken}, w)
-	
+
 		return
 	}
 
@@ -232,7 +232,7 @@ func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if(len(requestInfo.Name) <= 0){
+	if len(requestInfo.Name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "shop name cannot be empty",
@@ -265,7 +265,7 @@ func UpdateShopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if(len(requestInfo.Name) <= 0){
+	if len(requestInfo.Name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "shop name cannot be empty",
@@ -351,7 +351,12 @@ func DeleteLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	shopID, _ := strconv.Atoi(params["shopid"])
 
-	db.Where("shop_id = ?", shopID).Delete(&Location{})
+	err := db.Where("shop_id = ?", shopID).Delete(&Location{}).Error
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +373,7 @@ func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
 		}, w)
 		return
 	}
-	// tx := 
+	// tx :=
 	db.Model(&Location{}).Where("id = ?", locationID)
 
 	// if requestInfo.Coordinates != "" {
@@ -443,7 +448,7 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 		db.Find(&categories, requestInfo.Categories)
 	}
 
-	if(len(requestInfo.Name) <= 0){
+	if len(requestInfo.Name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "product name cannot be empty",
@@ -482,7 +487,7 @@ func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if(len(requestInfo.Name) <= 0){
+	if len(requestInfo.Name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "product name cannot be empty",
@@ -506,9 +511,9 @@ func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
 	db.Model(&product).Association("Categories").Delete(&product.Categories)
 
 	if len(requestInfo.Categories) > 0 {
-		db.Model(&product).Association("Categories").Append(&categories)	
+		db.Model(&product).Association("Categories").Append(&categories)
 	}
-	
+
 	db.Model(&product).Updates(Product{Categories: categories})
 
 	w.WriteHeader(http.StatusOK)
@@ -553,18 +558,14 @@ func GetCategoryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseMultipartForm(10 << 20)
+
 	var requestInfo Category
-	err := json.NewDecoder(r.Body).Decode(&requestInfo)
 
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
-		return
-	}
+	requestInfo.File = fileUpload(r, "file", "category-*.png")
+	requestInfo.Name = r.FormValue("name")
 
-	if(len(requestInfo.Name) <= 0){
+	if len(requestInfo.Name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "category name cannot be empty",
@@ -578,6 +579,8 @@ func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseMultipartForm(10 << 20)
+
 	params := mux.Vars(r)
 	categoryID, err := strconv.Atoi(params["categoryid"])
 
@@ -589,18 +592,21 @@ func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var requestInfo Category
-	err = json.NewDecoder(r.Body).Decode(&requestInfo)
+	var category Category
 
-	if err != nil {
+	result := db.First(&category, categoryID)
+	if result.RowsAffected == 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
-			Message: err.Error(),
+			Message: "category not found",
 		}, w)
 		return
 	}
 
-	if(len(requestInfo.Name) <= 0){
+	image := fileUpload(r, "file", "category-*.png")
+	name := r.FormValue("name")
+
+	if len(name) <= 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		JSONResponse(ErrorJSON{
 			Message: "category name cannot be empty",
@@ -608,11 +614,15 @@ func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx := db.Model(&Category{}).Where("id = ?", categoryID)
-
-	if requestInfo.Name != "" {
-		tx.Updates(Shop{Name: requestInfo.Name})
+	if len(name) > 0 {
+		category.Name = name
 	}
+
+	if len(image) > 0 {
+		category.File = image
+	}
+
+	db.Save(&category)
 
 	w.WriteHeader(http.StatusOK)
 }
