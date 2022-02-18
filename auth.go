@@ -66,19 +66,18 @@ func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 	return nil
 }
 
-
-func MakeTokens(w http.ResponseWriter, user User) (string, string){
+func MakeTokens(w http.ResponseWriter, user User) (string, string) {
 	accessClaims := map[string]interface{}{
-		"id": user.ID,
+		"id":    user.ID,
 		"email": user.Email,
 		"admin": user.Admin,
 		"exp":   time.Now().Add(time.Hour).Unix(),
 	}
 	accessToken, _ := GenerateToken(accessClaims)
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode , Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode, Secure: true})
 
 	refreshClaims := map[string]interface{}{
-		"id": user.ID,
+		"id":    user.ID,
 		"email": user.Email,
 		"admin": user.Admin,
 		"exp":   time.Now().Add(time.Hour * 24 * 7).Unix(),
@@ -91,7 +90,7 @@ func MakeTokens(w http.ResponseWriter, user User) (string, string){
 	}
 	db.Create(&refreshDatabaseEntry)
 
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7, SameSite: http.SameSiteNoneMode , Secure: true })
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7, SameSite: http.SameSiteNoneMode, Secure: true})
 
 	return accessToken, refreshToken
 }
@@ -151,24 +150,23 @@ func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 func shopProductValid(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
-		shopID, err1 := strconv.Atoi(params["shopid"])
-		productID, err2 := strconv.Atoi(params["productid"])
+		productID, err := strconv.Atoi(params["productid"])
 
-		if err1 != nil || err2 != nil {
+		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			JSONResponse(ErrorJSON{
-				Message: "bad shop id or product id",
+				Message: "product not found",
 			}, w)
 			return
 		}
 
 		var product Product
-		db.Where("shop_id = ?", shopID).Take(&product, productID)
+		db.Take(&product, productID)
 
-		if product.ShopID != uint(shopID) {
+		if len(product.Name) == 0 {
 			w.WriteHeader(http.StatusBadRequest)
 			JSONResponse(ErrorJSON{
-				Message: "this shop does not have this product",
+				Message: "product not found",
 			}, w)
 			return
 		}
@@ -205,26 +203,87 @@ func shopLocationValid(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-func isShopOwner(next http.HandlerFunc) http.HandlerFunc {
+func isShopOwner(shopID uint, r *http.Request) bool {
+	// Get JWT claims from context
+	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
+	email := fmt.Sprintf("%v", claims["email"])
+
+	var shop Shop
+	db.Preload(clause.Associations).Take(&shop, shopID)
+
+	return shop.User.Email == email
+
+}
+
+func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		params := mux.Vars(r)
-		shopID, err := strconv.Atoi(params["shopid"])
+
+		// Get product id from url
+		productID, err := strconv.Atoi(params["productid"])
 
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			JSONResponse(ErrorJSON{
-				Message: "bad shop id",
+				Message: "product not found",
 			}, w)
 			return
 		}
 
-		claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
-		email := fmt.Sprintf("%v", claims["email"])
+		//Check if product exists in database
+		var product Product
+		db.Take(&product, productID)
 
-		var shop Shop
-		db.Preload(clause.Associations).Take(&shop, shopID)
+		if len(product.Name) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			JSONResponse(ErrorJSON{
+				Message: "product not found",
+			}, w)
+			return
+		}
 
-		if shop.User.Email != email {
+		// Check for ownership
+		if !isShopOwner(product.ShopID, r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			JSONResponse(ErrorJSON{
+				Message: "unauthorized",
+			}, w)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLocationOwner(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		params := mux.Vars(r)
+
+		// Get product id from url
+		locationID, err := strconv.Atoi(params["locationid"])
+
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			JSONResponse(ErrorJSON{
+				Message: "product not found",
+			}, w)
+			return
+		}
+
+		//Check if product exists in database
+		var location Location
+		db.Take(&location, locationID)
+
+		if len(location.Type) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			JSONResponse(ErrorJSON{
+				Message: "product not found",
+			}, w)
+			return
+		}
+
+		// Check for ownership
+		if !isShopOwner(location.ShopID, r) {
 			w.WriteHeader(http.StatusUnauthorized)
 			JSONResponse(ErrorJSON{
 				Message: "unauthorized",

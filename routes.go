@@ -23,25 +23,25 @@ func HandleRequests() {
 
 	// ========================== Shops ==============================
 	r.HandleFunc("/shops", GetShopsHandler).Methods("GET")
-	r.HandleFunc("/shop/{shopid}", GetShopHandler).Methods("GET")
+	r.HandleFunc("/shop/{shop}", GetShopHandler).Methods("GET")
 	r.Handle("/shops", isAuthorized(CreateShopHandler)).Methods("POST")
-	r.Handle("/shop/{shopid}", isAuthorized(isShopOwner(UpdateShopHandler))).Methods("PUT")
-	r.Handle("/shop/{shopid}", isAuthorized(isShopOwner(DeleteShopHandler))).Methods("DELETE")
+	r.Handle("/shop/{shop}", isAuthorized(UpdateShopHandler)).Methods("PUT")
+	r.Handle("/shop/{shop}", isAuthorized(DeleteShopHandler)).Methods("DELETE")
 
 	// ========================== Locations ==============================
 	r.HandleFunc("/shop/{shopid}/locations", GetLocationsHandler).Methods("GET")
-	r.Handle("/shop/{shopid}/location/{locationid}", shopLocationValid(GetLocationHandler)).Methods("GET")
-	r.Handle("/shop/{shopid}/locations", isAuthorized(isShopOwner(CreateLocationHandler))).Methods("POST")
-	r.Handle("/shop/{shopid}/locations", isAuthorized(isShopOwner(DeleteLocationsHandler))).Methods("DELETE")
-	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(isShopOwner(shopLocationValid(UpdateLocationHandler)))).Methods("PUT")
-	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(isShopOwner(shopLocationValid(DeleteLocationHandler)))).Methods("DELETE")
+	r.HandleFunc("/shop/{shopid}/location/{locationid}", GetLocationHandler).Methods("GET")
+	r.Handle("/shop/{shopid}/locations", isAuthorized(CreateLocationHandler)).Methods("POST")
+	r.Handle("/shop/{shopid}/locations", isAuthorized(DeleteLocationsHandler)).Methods("DELETE")
+	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(UpdateLocationHandler)).Methods("PUT")
+	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(DeleteLocationHandler)).Methods("DELETE")
 
 	// ========================== Products ==============================
-	r.HandleFunc("/shop/{shopid}/products", GetProductsHandler).Methods("GET")
-	r.Handle("/shop/{shopid}/product/{productid}", shopProductValid(GetProductHandler)).Methods("GET")
-	r.Handle("/shop/{shopid}/products", isAuthorized(isShopOwner(CreateProductHandler))).Methods("POST")
-	r.Handle("/shop/{shopid}/product/{productid}", isAuthorized(isShopOwner(shopProductValid(UpdateProductHandler)))).Methods("PUT")
-	r.Handle("/shop/{shopid}/product/{productid}", isAuthorized(isShopOwner(shopProductValid(DeleteProductHandler)))).Methods("DELETE")
+	r.HandleFunc("/products", GetProductsHandler).Methods("GET")
+	r.HandleFunc("/product/{productid}", GetProductHandler).Methods("GET")
+	r.Handle("/products", isAuthorized(CreateProductHandler)).Methods("POST")
+	r.Handle("/product/{productid}", isAuthorized(UpdateProductHandler)).Methods("PUT")
+	r.Handle("/product/{productid}", isAuthorized(DeleteProductHandler)).Methods("DELETE")
 
 	// ========================== Categories ==============================
 	r.HandleFunc("/categories", GetCategoriesHandler).Methods("GET")

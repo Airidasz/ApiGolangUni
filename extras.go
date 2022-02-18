@@ -5,8 +5,18 @@ import (
 	"net/http"
 )
 
-func fileUpload(r *http.Request, formFile string, namePattern string) string {
-	
+func GetSingleParameter(r *http.Request, key string) string {
+	value := r.Form[key]
+
+	if len(value) > 0 {
+		return value[0]
+	}
+
+	return ""
+}
+
+func FileUpload(r *http.Request, formFile string, namePattern string) string {
+
 	// FormFile returns the first file for the given key `myFile`
 	// it also returns the FileHeader so we can get the Filename,
 	// the Header and the size of the file
