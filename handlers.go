@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -23,6 +22,8 @@ func LandingPage(w http.ResponseWriter, r *http.Request) {
 
 // =========================== Auth ===================================
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
+	errorStruct.Message = "bad login information"
 	//Creates a struct used to store data decoded from the body
 	requestData := struct {
 		Email    string `json:"email"`
@@ -36,20 +37,16 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Finds user by email in database, if no user, then returns "bad request"
 	err := db.Take(&userDatabaseData, "email = ?", requestData.Email).Error
 	if err != nil {
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "bad login information",
-		}, w)
 		return
 	}
 
 	hashedPassword := GenerateSecurePassword(requestData.Password, userDatabaseData.Salt)
 	//checks if salted hashed password from database matches the sent in salted hashed password
 	if hashedPassword != userDatabaseData.Password {
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "bad login information",
-		}, w)
 		return
 	}
 	accessToken, _ := MakeTokens(w, userDatabaseData)
@@ -71,6 +68,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 //it is formatted correctly, and tries to create an account in
 //the database
 func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
 	//Creates a struct used to store data decoded from the body
 	requestData := struct {
 		Name           string `json:"name"`
@@ -81,20 +79,18 @@ func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&requestData)
 	if err != nil {
+		errorStruct.Message = err.Error()
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
 		return
 	}
 
 	res, err := PerformUserDataChecks(requestData.Email, requestData.Password, requestData.RepeatPassword)
 
-	w.WriteHeader(res)
 	if err != nil {
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
+		errorStruct.Message = err.Error()
+		JSONResponse(errorStruct, w)
+		w.WriteHeader(res)
 		return
 	}
 
@@ -102,6 +98,7 @@ func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 	hashedPassword := GenerateSecurePassword(requestData.Password, salt)
 
 	newUser := User{
+		Name:     requestData.Name,
 		Email:    requestData.Email,
 		Password: hashedPassword,
 		Salt:     salt,
@@ -111,6 +108,7 @@ func CreateAccountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
 	refreshTokenCookie, err := r.Cookie("Refresh-Token")
 
 	if err == nil {
@@ -123,18 +121,16 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 		if err != nil {
+			errorStruct.Message = err.Error()
+			JSONResponse(errorStruct, w)
 			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(ErrorJSON{
-				Message: err.Error(),
-			}, w)
 			return
 		}
 
 		if !token.Valid {
+			errorStruct.Message = err.Error()
+			JSONResponse(errorStruct, w)
 			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(ErrorJSON{
-				Message: err.Error(),
-			}, w)
 			return
 		}
 
@@ -145,18 +141,18 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 		if oldRefreshToken.DeletedAt.Valid {
 			db.Delete(&RefreshToken{}, "email = ?", email)
+
+			errorStruct.Message = "token expired"
+			JSONResponse(errorStruct, w)
 			w.WriteHeader(http.StatusForbidden)
-			JSONResponse(ErrorJSON{
-				Message: "token expired",
-			}, w)
+
 			return
 		}
 
 		if exp, ok := claims["exp"].(int64); ok && exp > time.Now().Unix() {
+			errorStruct.Message = "token expired"
+			JSONResponse(errorStruct, w)
 			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(ErrorJSON{
-				Message: "token expired",
-			}, w)
 			return
 		}
 
@@ -206,71 +202,96 @@ func GetShopHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateShopHandler(w http.ResponseWriter, r *http.Request) {
-	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
-	email := fmt.Sprintf("%v", claims["email"])
+	var errorStruct ErrorJSON
 
-	var requestInfo Shop
-	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+	var shop Shop
+	err := json.NewDecoder(r.Body).Decode(&shop)
 
 	if err != nil {
+		errorStruct.Message = err.Error()
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
+		JSONResponse(errorStruct, w)
 		return
 	}
 
-	if len(requestInfo.Name) <= 0 {
+	if shop.Name == nil || *shop.Name == "" {
+		errorStruct.Message = "name cannot be empty"
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "shop name cannot be empty",
-		}, w)
+		JSONResponse(errorStruct, w)
 		return
+	}
+
+	err = NameTaken(*shop.Name, &Shop{})
+	if err != nil {
+		errorStruct.Message = err.Error()
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(errorStruct, w)
+		return
+	}
+
+	if shop.Description == nil {
+		shop.Description = new(string)
 	}
 
 	var user User
-	db.Take(&user, "email = ?", email)
+	db.Take(&user, "email = ?", "a")
 
-	requestInfo.User = user
-	db.Create(&requestInfo)
+	err = db.Where("user_id = ?", user.ID).Take(&Shop{}).Error
+	if err == nil {
+		errorStruct.Message = "second shop cannot be created"
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(errorStruct, w)
+		return
+	}
+
+	shop.User = user
+	db.Create(&shop)
 
 	w.WriteHeader(http.StatusCreated)
-	JSONResponse(requestInfo, w)
+	JSONResponse(shop, w)
 }
 
 func UpdateShopHandler(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
+	var errorStruct ErrorJSON
 
-	shopName := GetSingleParameter(r, "shop")
+	params := mux.Vars(r)
+	shopName := params["shop"]
 
 	var requestInfo Shop
 	err := json.NewDecoder(r.Body).Decode(&requestInfo)
 
 	if err != nil {
+		errorStruct.Message = err.Error()
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
+		JSONResponse(errorStruct, w)
 		return
 	}
 
-	tx := db.Model(&Shop{}).Where("name = ?", shopName)
-
-	if requestInfo.Name != "" {
-		tx.Updates(Shop{Name: requestInfo.Name})
+	if requestInfo.Name != nil && *requestInfo.Name == "" {
+		errorStruct.Message = "name cannot be empty"
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(errorStruct, w)
+		return
 	}
 
-	if requestInfo.Description != "" {
-		tx.Updates(Shop{Description: requestInfo.Description})
+	var shop Shop
+	db.Where("name = ?", shopName).Take(&shop)
+
+	if requestInfo.Name != nil {
+		shop.Name = requestInfo.Name
 	}
 
+	if requestInfo.Description != nil {
+		shop.Description = requestInfo.Description
+	}
+
+	db.Save(&shop)
 	w.WriteHeader(http.StatusOK)
 }
 
 func DeleteShopHandler(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-
-	shopName := GetSingleParameter(r, "shop")
+	params := mux.Vars(r)
+	shopName := params["shop"]
 
 	err := db.Unscoped().Select("Locations", "Products").Where("name = ?", shopName).Delete(&Shop{}).Error
 	if err != nil {
@@ -281,109 +302,12 @@ func DeleteShopHandler(w http.ResponseWriter, r *http.Request) {
 
 // ===================================================================
 
-// ========================== Locations ==============================
-func GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	shopName := params["shop"]
-
-	var shop Shop
-	db.Where("name = ?", shopName).Find(&shop)
-
-	var locations []Location
-	err := db.Where("shop_id = ?", shop.ID).Find(&locations).Error
-	if err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	JSONResponse(locations, w)
-}
-
-func GetLocationHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	locationID, _ := strconv.Atoi(params["locationid"])
-
-	var location Location
-
-	if db.Take(&location, locationID).Error != nil {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	JSONResponse(&location, w)
-}
-
-func CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	shopID, _ := strconv.Atoi(params["shopid"])
-
-	var requestInfo Location
-	err := json.NewDecoder(r.Body).Decode(&requestInfo)
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
-		return
-	}
-
-	requestInfo.ShopID = uint(shopID)
-	db.Create(&requestInfo)
-
-	w.WriteHeader(http.StatusCreated)
-}
-func DeleteLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	shopID, _ := strconv.Atoi(params["shopid"])
-
-	err := db.Where("shop_id = ?", shopID).Delete(&Location{}).Error
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	locationID, _ := strconv.Atoi(params["locationid"])
-
-	var requestInfo Location
-	err := json.NewDecoder(r.Body).Decode(&requestInfo)
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
-		return
-	}
-	// tx :=
-	db.Model(&Location{}).Where("id = ?", locationID)
-
-	// if requestInfo.Coordinates != "" {
-	// 	tx.Updates(Location{Coordinates: requestInfo.Coordinates})
-	// }
-
-	w.WriteHeader(http.StatusOK)
-}
-
-func DeleteLocationHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	locationID, _ := strconv.Atoi(params["locationid"])
-
-	db.Delete(&Location{}, locationID)
-}
-
-// ===================================================================
-
 // ========================== Products ==============================
 func GetProductsHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
+	requestedCategories := r.Form["category"]
 
 	tx := db
-
-	requestedCategories := r.Form["category"]
 
 	if len(requestedCategories) > 0 {
 		var categoryIDs []uint
@@ -414,23 +338,22 @@ func GetProductsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetProductHandler(w http.ResponseWriter, r *http.Request) {
-	r.ParseForm()
-
-	productName := GetSingleParameter(r, "product")
+	params := mux.Vars(r)
+	productName := params["product"]
 
 	var product Product
 
-	if db.Preload("Categories").Where("name = ?", productName).Take(&product).Error != nil {
+	err := db.Preload("Categories").Where("name = ?", productName).Take(&product).Error
+	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	JSONResponse(&product, w)
+	JSONResponse(product, w)
 }
 
 func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	shopName, _ := params["shop"]
+	var errorStruct ErrorJSON
 
 	requestInfo := struct {
 		Name        string `json:"name"`
@@ -441,10 +364,9 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&requestInfo)
 
 	if err != nil {
+		errorStruct.Message = err.Error()
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: err.Error(),
-		}, w)
 		return
 	}
 
@@ -454,20 +376,22 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(requestInfo.Name) <= 0 {
+		errorStruct.Message = "product name cannot be empty"
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "product name cannot be empty",
-		}, w)
 		return
 	}
 
+	var user User
+	db.Take(&user, "email = ?", "a")
+
 	var shop Shop
-	err = db.Where("name = ?", shopName).Find(&shop).Error
-	if err != nil {
+	db.Where("user_id = ?", user.ID).Take(&shop)
+
+	if shop.Name == nil {
+		errorStruct.Message = "no shop detected, please create a shop before creating a product"
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "shop not found",
-		}, w)
 		return
 	}
 
@@ -477,21 +401,105 @@ func CreateProductHandler(w http.ResponseWriter, r *http.Request) {
 		ShopID:      shop.ID,
 		Categories:  categories,
 	}
+
 	db.Create(&newProduct)
 
 	w.WriteHeader(http.StatusCreated)
 }
 
 func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
+
 	params := mux.Vars(r)
 	productName := params["product"]
 
 	requestInfo := struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Categories  []int  `json:"categories"`
-	}{"", "", nil}
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Categories  []int   `json:"categories"`
+	}{nil, nil, nil}
 
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		errorStruct.Message = err.Error()
+		JSONResponse(errorStruct, w)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var product Product
+	db.Preload("Categories").Where("name = ?", productName).Take(&product)
+
+	if requestInfo.Name != nil {
+		product.Name = *requestInfo.Name
+	}
+
+	if requestInfo.Description != nil {
+		product.Description = *requestInfo.Description
+	}
+
+	if requestInfo.Categories != nil {
+		var categories []Category
+		db.Find(&categories, requestInfo.Categories)
+
+		product.Categories = categories
+	}
+
+	db.Save(&product)
+}
+
+func DeleteProductHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	productName := params["product"]
+
+	db.Unscoped().Where("name = ?", productName).Delete(&Product{})
+}
+
+// ===================================================================
+
+// ========================== Locations ==============================
+func GetLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
+
+	params := mux.Vars(r)
+	shopName := params["shop"]
+
+	var shop Shop
+	db.Where("name = ?", shopName).Find(&shop)
+
+	if shop.Name == nil {
+		errorStruct.Message = "shop not found"
+		JSONResponse(errorStruct, w)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var locations []Location
+	db.Where("shop_id = ?", shop.ID).Find(&locations)
+
+	JSONResponse(locations, w)
+}
+
+func GetLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	locationID := params["locationid"]
+
+	var location Location
+
+	if db.Take(&location, locationID).Error != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	JSONResponse(&location, w)
+}
+
+func CreateLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopName := params["shop"]
+
+	var requestInfo Location
 	err := json.NewDecoder(r.Body).Decode(&requestInfo)
 
 	if err != nil {
@@ -502,35 +510,62 @@ func UpdateProductHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var product Product
-	db.Preload("Categories").Where("name = ?", productName).Take(&product)
+	var shop Shop
+	db.Where("name = ?", shopName).Take(&shop)
 
-	if requestInfo.Name != "" {
-		db.Model(&product).Updates(Product{Name: requestInfo.Name})
+	requestInfo.Shop = shop
+	db.Create(&requestInfo)
+
+	w.WriteHeader(http.StatusCreated)
+}
+func DeleteLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	shopName := params["shop"]
+
+	var shop Shop
+	err := db.Where("name = ?", shopName).Take(&shop).Error
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 	}
 
-	if requestInfo.Description != "" {
-		db.Model(&product).Updates(Product{Description: requestInfo.Description})
+	err = db.Where("shop_id = ?", shop.ID).Delete(&Location{}).Error
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 	}
-
-	var categories []Category
-	db.Find(&categories, requestInfo.Categories)
-	db.Model(&product).Association("Categories").Delete(&product.Categories)
-
-	if len(requestInfo.Categories) > 0 {
-		db.Model(&product).Association("Categories").Append(&categories)
-	}
-
-	db.Model(&product).Updates(Product{Categories: categories})
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func DeleteProductHandler(w http.ResponseWriter, r *http.Request) {
+func UpdateLocationHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	productName := params["product"]
+	locationID := params["locationid"]
 
-	db.Unscoped().Where("name = ?", productName).Delete(&Product{})
+	var requestInfo Location
+	err := json.NewDecoder(r.Body).Decode(&requestInfo)
+
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		JSONResponse(ErrorJSON{
+			Message: err.Error(),
+		}, w)
+		return
+	}
+	// tx :=
+	db.Model(&Location{}).Where("id = ?", locationID)
+
+	// if requestInfo.Coordinates != "" {
+	// 	tx.Updates(Location{Coordinates: requestInfo.Coordinates})
+	// }
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func DeleteLocationHandler(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	locationID := params["locationid"]
+
+	db.Delete(&Location{}, locationID)
 }
 
 // ===================================================================
@@ -544,19 +579,12 @@ func GetCategoriesHandler(w http.ResponseWriter, r *http.Request) {
 
 func GetCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	caregoryID, err := strconv.Atoi(params["categoryid"])
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "bad category id",
-		}, w)
-		return
-	}
+	caregoryID := params["categoryid"]
 
 	var category Category
 
-	if db.Take(&category, caregoryID).Error != nil {
+	err := db.Take(&category, caregoryID).Error
+	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -565,18 +593,19 @@ func GetCategoryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
+
 	r.ParseMultipartForm(10 << 20)
 
 	var requestInfo Category
 
 	requestInfo.File = FileUpload(r, "file", "category-*.png")
-	requestInfo.Name = r.FormValue("name")
+	*requestInfo.Name = r.FormValue("name")
 
-	if len(requestInfo.Name) <= 0 {
+	if requestInfo.Name == nil {
+		errorStruct.Message = "category name cannot be empty"
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "category name cannot be empty",
-		}, w)
 		return
 	}
 
@@ -586,43 +615,28 @@ func CreateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
+	var errorStruct ErrorJSON
+
 	r.ParseMultipartForm(10 << 20)
 
 	params := mux.Vars(r)
-	categoryID, err := strconv.Atoi(params["categoryid"])
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "bad category id",
-		}, w)
-		return
-	}
+	categoryID := params["categoryid"]
 
 	var category Category
 
-	result := db.First(&category, categoryID)
-	if result.RowsAffected == 0 {
+	err := db.Take(&category, categoryID).Error
+	if err != nil {
+		errorStruct.Message = "category not found"
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "category not found",
-		}, w)
 		return
 	}
 
 	image := FileUpload(r, "file", "category-*.png")
 	name := r.FormValue("name")
 
-	if len(name) <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "category name cannot be empty",
-		}, w)
-		return
-	}
-
 	if len(name) > 0 {
-		category.Name = name
+		*category.Name = name
 	}
 
 	if len(image) > 0 {
@@ -630,21 +644,11 @@ func UpdateCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	db.Save(&category)
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func DeleteCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	caregoryID, err := strconv.Atoi(params["categoryid"])
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(ErrorJSON{
-			Message: "bad category id",
-		}, w)
-		return
-	}
+	caregoryID := params["categoryid"]
 
 	db.Unscoped().Delete(&Category{}, caregoryID)
 }

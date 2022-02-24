@@ -175,27 +175,24 @@ func shopProductValid(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-func shopLocationValid(next http.HandlerFunc) http.HandlerFunc {
+func isShopOwner(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var errorStruct ErrorJSON
+
 		params := mux.Vars(r)
-		shopID, err1 := strconv.Atoi(params["shopid"])
-		locationID, err2 := strconv.Atoi(params["locationid"])
+		shopName := params["shop"]
 
-		if err1 != nil || err2 != nil {
-			JSONResponse(ErrorJSON{
-				Message: "bad shop id or location id",
-			}, w)
-			return
-		}
+		// Get JWT claims from context
+		claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
+		email := fmt.Sprintf("%v", claims["email"])
 
-		var location Location
-		db.Take(&location, locationID)
+		var shop Shop
+		db.Preload(clause.Associations).Where("name = ?", shopName).Take(&shop)
 
-		if location.ShopID != uint(shopID) {
+		if shop.Name == nil || shop.User.Email != email {
+			errorStruct.Message = "shop not found"
 			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "this shop does not have this location",
-			}, w)
+			JSONResponse(errorStruct, w)
 			return
 		}
 
@@ -203,51 +200,32 @@ func shopLocationValid(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-func isShopOwner(shopID uint, r *http.Request) bool {
-	// Get JWT claims from context
-	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
-	email := fmt.Sprintf("%v", claims["email"])
-
-	var shop Shop
-	db.Preload(clause.Associations).Take(&shop, shopID)
-
-	return shop.User.Email == email
-
-}
-
 func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		params := mux.Vars(r)
+		var errorStruct ErrorJSON
 
-		// Get product id from url
-		productID, err := strconv.Atoi(params["productid"])
+		params := mux.Vars(r)
+		productName := params["product"]
+
+		var product Product
+		err := db.Where("name = ?", productName).First(&product).Error
 
 		if err != nil {
+			errorStruct.Message = "product not found"
 			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
+			JSONResponse(errorStruct, w)
 			return
 		}
 
-		//Check if product exists in database
-		var product Product
-		db.Take(&product, productID)
+		email := GetClaim("email", r)
 
-		if len(product.Name) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
-			return
-		}
+		var shop Shop
+		db.Preload(clause.Associations).Take(&shop, product.ShopID)
 
-		// Check for ownership
-		if !isShopOwner(product.ShopID, r) {
+		if shop.User.Email != email {
+			errorStruct.Message = "you cannot modify this product"
 			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(ErrorJSON{
-				Message: "unauthorized",
-			}, w)
+			JSONResponse(errorStruct, w)
 			return
 		}
 
@@ -257,37 +235,31 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 
 func isLocationOwner(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		params := mux.Vars(r)
+		var errorStruct ErrorJSON
 
-		// Get product id from url
-		locationID, err := strconv.Atoi(params["locationid"])
+		params := mux.Vars(r)
+		locationName := params["location"]
+		shopName := params["shop"]
+
+		var location Location
+		err := db.Where("name = ?", locationName).First(&location).Error
 
 		if err != nil {
+			errorStruct.Message = "location not found"
 			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
+			JSONResponse(errorStruct, w)
 			return
 		}
 
-		//Check if product exists in database
-		var location Location
-		db.Take(&location, locationID)
+		email := GetClaim("email", r)
 
-		if len(location.Type) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
-			return
-		}
+		var shop Shop
+		db.Preload(clause.Associations).Where("name = ?", shopName).Take(&shop)
 
-		// Check for ownership
-		if !isShopOwner(location.ShopID, r) {
+		if shop.User.Email != email {
+			errorStruct.Message = "you cannot modify this product"
 			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(ErrorJSON{
-				Message: "unauthorized",
-			}, w)
+			JSONResponse(errorStruct, w)
 			return
 		}
 

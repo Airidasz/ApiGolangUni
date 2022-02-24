@@ -3,10 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/rs/cors"
 )
 
 func HandleRequests() {
@@ -24,43 +22,33 @@ func HandleRequests() {
 	// ========================== Shops ==============================
 	r.HandleFunc("/shops", GetShopsHandler).Methods("GET")
 	r.HandleFunc("/shop/{shop}", GetShopHandler).Methods("GET")
-	r.Handle("/shops", isAuthorized(CreateShopHandler)).Methods("POST")
-	r.Handle("/shop/{shop}", isAuthorized(UpdateShopHandler)).Methods("PUT")
-	r.Handle("/shop/{shop}", isAuthorized(DeleteShopHandler)).Methods("DELETE")
+	r.HandleFunc("/shops", CreateShopHandler).Methods("POST")
+	r.HandleFunc("/shop/{shop}", UpdateShopHandler).Methods("PUT")
+	r.HandleFunc("/shop/{shop}", DeleteShopHandler).Methods("DELETE")
+
+	// ========================== Products ==============================
+	r.HandleFunc("/products", GetProductsHandler).Methods("GET")
+	r.HandleFunc("/product/{product}", GetProductHandler).Methods("GET")
+	r.HandleFunc("/products", CreateProductHandler).Methods("POST")
+	r.HandleFunc("/product/{product}", UpdateProductHandler).Methods("PUT")
+	r.HandleFunc("/product/{product}", DeleteProductHandler).Methods("DELETE")
 
 	// ========================== Locations ==============================
 	r.HandleFunc("/shop/{shopid}/locations", GetLocationsHandler).Methods("GET")
 	r.HandleFunc("/shop/{shopid}/location/{locationid}", GetLocationHandler).Methods("GET")
-	r.Handle("/shop/{shopid}/locations", isAuthorized(CreateLocationHandler)).Methods("POST")
-	r.Handle("/shop/{shopid}/locations", isAuthorized(DeleteLocationsHandler)).Methods("DELETE")
-	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(UpdateLocationHandler)).Methods("PUT")
-	r.Handle("/shop/{shopid}/location/{locationid}", isAuthorized(DeleteLocationHandler)).Methods("DELETE")
-
-	// ========================== Products ==============================
-	r.HandleFunc("/products", GetProductsHandler).Methods("GET")
-	r.HandleFunc("/product/{productid}", GetProductHandler).Methods("GET")
-	r.Handle("/products", isAuthorized(CreateProductHandler)).Methods("POST")
-	r.Handle("/product/{productid}", isAuthorized(UpdateProductHandler)).Methods("PUT")
-	r.Handle("/product/{productid}", isAuthorized(DeleteProductHandler)).Methods("DELETE")
+	r.HandleFunc("/shop/{shopid}/locations", isAuthorized(CreateLocationHandler)).Methods("POST")
+	r.HandleFunc("/shop/{shopid}/locations", isAuthorized(DeleteLocationsHandler)).Methods("DELETE")
+	r.HandleFunc("/shop/{shopid}/location/{locationid}", isAuthorized(UpdateLocationHandler)).Methods("PUT")
+	r.HandleFunc("/shop/{shopid}/location/{locationid}", isAuthorized(DeleteLocationHandler)).Methods("DELETE")
 
 	// ========================== Categories ==============================
 	r.HandleFunc("/categories", GetCategoriesHandler).Methods("GET")
 	r.HandleFunc("/category/{categoryid}", GetCategoryHandler).Methods("GET")
-	r.Handle("/categories", isAdmin(CreateCategoryHandler)).Methods("POST")
-	r.Handle("/category/{categoryid}", isAdmin(UpdateCategoryHandler)).Methods("PUT")
-	r.Handle("/category/{categoryid}", isAdmin(DeleteCategoryHandler)).Methods("DELETE")
+	r.HandleFunc("/categories", isAdmin(CreateCategoryHandler)).Methods("POST")
+	r.HandleFunc("/category/{categoryid}", isAdmin(UpdateCategoryHandler)).Methods("PUT")
+	r.HandleFunc("/category/{categoryid}", isAdmin(DeleteCategoryHandler)).Methods("DELETE")
 
 	fmt.Println("Opened a server on port :8080")
 
-	c := cors.New(cors.Options{
-		AllowedOrigins:     []string{"http://localhost:3000", os.Getenv("API_URL"), "http://localhost"},
-		AllowCredentials:   true,
-		AllowedMethods:     []string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"},
-		OptionsPassthrough: true,
-		ExposedHeaders:     []string{"Set-Cookie"},
-	})
-
-	handler := c.Handler(r)
-
-	http.ListenAndServe(":8080", handler)
+	http.ListenAndServe(":8080", r)
 }

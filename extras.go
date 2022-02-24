@@ -1,9 +1,26 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+
+	"github.com/golang-jwt/jwt"
 )
+
+func NameTaken(name string, model interface{}) (err error) {
+	if db.Find(model, "name = ?", name).RowsAffected > 0 {
+		return errors.New("name taken")
+	}
+
+	return nil
+}
+
+func GetClaim(name string, r *http.Request) string {
+	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
+	return fmt.Sprintf("%v", claims[name])
+}
 
 func GetSingleParameter(r *http.Request, key string) string {
 	value := r.Form[key]
