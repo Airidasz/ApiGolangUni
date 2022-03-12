@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -17,10 +17,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-//CheckNameAvailability checks if a username is available
 func CheckEmailAvailability(email string) error {
 	//if no record of the email is found, returns an error
-	if db.Find(&User{}, "email = ?", email).RowsAffected > 0 {
+	err := db.Take(&User{}, "email = ?", email).Error
+	if err == nil {
 		return errors.New("this email is taken")
 	}
 
@@ -29,9 +29,18 @@ func CheckEmailAvailability(email string) error {
 
 //CreateNewAccount creates an account if the sent data
 //is correctly formatted
-func PerformUserDataChecks(email string, password string, repeatedPassword string) (httpStatus int, err error) {
+func PerformUserDataChecks(name string, email string, password string, repeatedPassword string) (httpStatus int, err error) {
+	if len(name) == 0 {
+		return http.StatusNotAcceptable, errors.New("username cannot be empty")
+	}
+
+	err = NameTaken(name, &User{})
+	if err != nil {
+		return http.StatusNotAcceptable, err
+	}
+
 	if !emailRegex.MatchString(email) {
-		return http.StatusNotAcceptable, errors.New("please enter a valid email")
+		return http.StatusNotAcceptable, errors.New("please enter a valid email address")
 	}
 
 	err = CheckEmailAvailability(email)
@@ -67,22 +76,19 @@ func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 }
 
 func MakeTokens(w http.ResponseWriter, user User) (string, string) {
-	accessClaims := map[string]interface{}{
-		"id":    user.ID,
-		"email": user.Email,
-		"admin": user.Admin,
-		"exp":   time.Now().Add(time.Hour).Unix(),
+	claims := map[string]interface{}{
+		"id":          user.ID,
+		"email":       user.Email,
+		"permissions": user.Permissions,
+		"shop":        user.ShopCodename,
+		"exp":         time.Now().Add(time.Hour).Unix(),
 	}
-	accessToken, _ := GenerateToken(accessClaims)
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode, Secure: true})
+	accessToken, _ := GenerateToken(claims)
+	// http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode, Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60000})
 
-	refreshClaims := map[string]interface{}{
-		"id":    user.ID,
-		"email": user.Email,
-		"admin": user.Admin,
-		"exp":   time.Now().Add(time.Hour * 24 * 7).Unix(),
-	}
-	refreshToken, _ := GenerateToken(refreshClaims)
+	claims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix()
+	refreshToken, _ := GenerateToken(claims)
 
 	refreshDatabaseEntry := RefreshToken{
 		Token: refreshToken,
@@ -90,7 +96,8 @@ func MakeTokens(w http.ResponseWriter, user User) (string, string) {
 	}
 	db.Create(&refreshDatabaseEntry)
 
-	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7, SameSite: http.SameSiteNoneMode, Secure: true})
+	// http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7, SameSite: http.SameSiteNoneMode, Secure: true})
+	http.SetCookie(w, &http.Cookie{Name: "Refresh-Token", Value: refreshToken, HttpOnly: true, MaxAge: 60 * 60 * 24 * 7})
 
 	return accessToken, refreshToken
 }
@@ -129,9 +136,9 @@ func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 			}
 
 			if token.Valid {
-				isAdmin := claims["admin"].(bool)
+				permissions := claims["permissions"].(string)
 
-				if isAdmin {
+				if hasAdminPermissions(permissions) {
 					ctx := context.WithValue(r.Context(), ctxKey{}, claims)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -147,57 +154,8 @@ func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-func shopProductValid(next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		params := mux.Vars(r)
-		productID, err := strconv.Atoi(params["productid"])
-
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
-			return
-		}
-
-		var product Product
-		db.Take(&product, productID)
-
-		if len(product.Name) == 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(ErrorJSON{
-				Message: "product not found",
-			}, w)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isShopOwner(next http.HandlerFunc) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var errorStruct ErrorJSON
-
-		params := mux.Vars(r)
-		shopName := params["shop"]
-
-		// Get JWT claims from context
-		claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
-		email := fmt.Sprintf("%v", claims["email"])
-
-		var shop Shop
-		db.Preload(clause.Associations).Where("name = ?", shopName).Take(&shop)
-
-		if shop.Name == nil || shop.User.Email != email {
-			errorStruct.Message = "shop not found"
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(errorStruct, w)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+func hasAdminPermissions(permissions string) bool {
+	return strings.ContainsAny(permissions, "aA")
 }
 
 func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
@@ -208,7 +166,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 		productName := params["product"]
 
 		var product Product
-		err := db.Where("name = ?", productName).First(&product).Error
+		err := db.Where("codename = ?", productName).First(&product).Error
 
 		if err != nil {
 			errorStruct.Message = "product not found"
@@ -220,7 +178,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 		email := GetClaim("email", r)
 
 		var shop Shop
-		db.Preload(clause.Associations).Take(&shop, product.ShopID)
+		db.Preload(clause.Associations).Take(&shop, "id = ?", product.ShopID)
 
 		if shop.User.Email != email {
 			errorStruct.Message = "you cannot modify this product"
@@ -254,7 +212,7 @@ func isLocationOwner(next http.HandlerFunc) http.HandlerFunc {
 		email := GetClaim("email", r)
 
 		var shop Shop
-		db.Preload(clause.Associations).Where("name = ?", shopName).Take(&shop)
+		db.Preload(clause.Associations).Where("shopname = ?", shopName).Take(&shop)
 
 		if shop.User.Email != email {
 			errorStruct.Message = "you cannot modify this product"
@@ -269,21 +227,23 @@ func isLocationOwner(next http.HandlerFunc) http.HandlerFunc {
 
 func isAuthorized(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var errorStruct ErrorJSON
+
 		accessTokenCookie, err := r.Cookie("Access-Token")
 		if err == nil {
 			claims := jwt.MapClaims{}
 			token, err := jwt.ParseWithClaims(accessTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				_, ok := token.Method.(*jwt.SigningMethodHMAC)
+				if !ok {
 					return nil, fmt.Errorf("there was an error")
 				}
 				return signKey, nil
 			})
 
 			if err != nil {
+				errorStruct.Message = err.Error()
+				JSONResponse(errorStruct, w)
 				w.WriteHeader(http.StatusUnauthorized)
-				JSONResponse(ErrorJSON{
-					Message: err.Error(),
-				}, w)
 				return
 			}
 
@@ -294,11 +254,9 @@ func isAuthorized(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		errorStruct.Message = "unauthorized"
+		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusUnauthorized)
-		JSONResponse(ErrorJSON{
-			Message: "unauthorized",
-		}, w)
-
 	})
 }
 

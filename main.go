@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 
@@ -13,21 +11,22 @@ import (
 	"gorm.io/gorm"
 )
 
-func JSONResponse(response interface{}, w http.ResponseWriter) {
-	json, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(json)
-}
-
 var db *gorm.DB
 var passwordRegex *regexp.Regexp
 var emailRegex *regexp.Regexp
 var signKey []byte
+
+var enLtLetterMap = map[string]string{
+	"ą": "a",
+	"č": "c",
+	"ę": "e",
+	"ė": "e",
+	"į": "i",
+	"š": "s",
+	"ų": "u",
+	"ū": "u",
+	"ž": "z",
+}
 
 func main() {
 	err := godotenv.Load(".env")
@@ -47,7 +46,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	//make work?
+	//db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
 	db.AutoMigrate(&User{}, &Category{}, &Shop{}, &Location{}, &Product{}, &RefreshToken{})
 
 	HandleRequests()
