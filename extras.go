@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
+	"gorm.io/gorm/clause"
 )
 
 func JSONResponse(response interface{}, w http.ResponseWriter) {
@@ -28,6 +29,10 @@ func GetShopByEmail(email string, shop *Shop, preload bool, params ...string) (e
 
 	for _, param := range params {
 		tx.Select(param)
+	}
+
+	if preload {
+		tx.Preload(clause.Associations)
 	}
 
 	return db.Joins("left join users on shops.user_id = users.id").Where("users.email = ?", email).Take(shop).Error
@@ -102,4 +107,21 @@ func GenerateCodename(input string, hasSuffix bool) string {
 
 	generated, _ := uuid.NewRandom()
 	return codename + "-" + generated.String()[0:4]
+}
+
+func ParseCategories(data string) ([]Category, error) {
+	var categories []Category
+
+	var categoryIDs []string
+	err := json.Unmarshal([]byte(data), &categoryIDs)
+
+	if err != nil {
+		return categories, errors.New("json parse error")
+	}
+
+	if len(categoryIDs) > 0 {
+		db.Find(&categories, "id in ?", categoryIDs)
+	}
+
+	return categories, nil
 }

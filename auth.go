@@ -77,9 +77,10 @@ func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 
 func MakeTokens(w http.ResponseWriter, user User) (string, string) {
 	claims := map[string]interface{}{
-		"id":          user.ID,
+		"name":        user.Name,
 		"email":       user.Email,
 		"permissions": user.Permissions,
+		"isSet":       true, // For frontend
 		"shop":        user.ShopCodename,
 		"exp":         time.Now().Add(time.Hour).Unix(),
 	}
