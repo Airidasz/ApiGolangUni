@@ -6,12 +6,23 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	"gorm.io/gorm/clause"
 )
+
+func LandingPage(w http.ResponseWriter, r *http.Request) {
+	b := struct {
+		Make    string `json:"make"`
+		Model   string `json:"model"`
+		Mileage int    `json:"mileage"`
+	}{"Vienas", "Du", 1}
+
+	JSONResponse(b, w)
+}
 
 func JSONResponse(response interface{}, w http.ResponseWriter) {
 	json, err := json.Marshal(response)
@@ -47,9 +58,21 @@ func NameTaken(name string, model interface{}) (err error) {
 	return nil
 }
 
-func GetClaim(name string, r *http.Request) string {
-	claims := r.Context().Value(ctxKey{}).(jwt.MapClaims)
-	return fmt.Sprintf("%v", claims[name])
+func GetClaim(name string, r *http.Request) *string {
+	claims := r.Context().Value(ctxKey{})
+
+	if claims == nil {
+		return nil
+	}
+
+	jwtClaims := claims.(jwt.MapClaims)
+
+	if val, ok := jwtClaims[name]; ok {
+		claimString := fmt.Sprintf("%v", val)
+		return &claimString
+	}
+
+	return nil
 }
 
 func GetSingleParameter(r *http.Request, key string) string {
@@ -63,7 +86,6 @@ func GetSingleParameter(r *http.Request, key string) string {
 }
 
 func FileUpload(r *http.Request, formFile string, namePattern string) string {
-
 	// FormFile returns the first file for the given key `myFile`
 	// it also returns the FileHeader so we can get the Filename,
 	// the Header and the size of the file
@@ -93,8 +115,18 @@ func FileUpload(r *http.Request, formFile string, namePattern string) string {
 	return tempFile.Name()
 }
 
+func GenerateOrderIdentifier() string {
+	generated, _ := uuid.NewRandom()
+	return generated.String()[0:8]
+}
+
 func GenerateCodename(input string, hasSuffix bool) string {
-	codename := strings.ReplaceAll(strings.ToLower(input), " ", "-")
+	// regex for NOT word, whitespace or digit
+	specialCharacters := regexp.MustCompile(`[^\w|\d|\s]`)
+
+	codename := specialCharacters.ReplaceAllString(strings.ToLower(input), "")
+	codename = strings.TrimSpace(codename)
+	codename = strings.ReplaceAll(codename, " ", "-")
 
 	// Replace Lithuanian letters
 	for ltLetter, enLetter := range enLtLetterMap {
@@ -107,6 +139,15 @@ func GenerateCodename(input string, hasSuffix bool) string {
 
 	generated, _ := uuid.NewRandom()
 	return codename + "-" + generated.String()[0:4]
+}
+
+func Trim(s *string) *string {
+	if s == nil {
+		return nil
+	}
+
+	temp := strings.TrimSpace(*s)
+	return &temp
 }
 
 func ParseCategories(data string) ([]Category, error) {
@@ -124,4 +165,17 @@ func ParseCategories(data string) ([]Category, error) {
 	}
 
 	return categories, nil
+}
+
+func CreateTempUser(user User) error {
+	if !emailRegex.MatchString(user.Email) {
+		return errors.New("please enter a valid email address")
+	}
+
+	err := CheckEmailAvailability(user.Email)
+	if err != nil {
+		return err
+	}
+
+	return db.Create(&user).Error
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -11,71 +10,82 @@ import (
 type ctxKey struct{}
 
 type User struct {
-	ID           uuid.UUID `gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
-	Name         string    `json:"name" gorm:"size:100"`
-	Email        string    `json:"email" gorm:"size:100;not null"`
-	Password     string    `json:"-" gorm:"size:100;not null"`
-	Salt         string    `json:"-" gorm:"size:64;not null"`
-	Permissions  string    `json:"-" gorm:"size:20"`
-	ShopCodename *string   `json:"-"`
-	Temporary    bool      `json:"temporary"`
+	ID           string `gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt    time.Time
+	Name         string  `json:"name" gorm:"size:100"`
+	Email        string  `json:"email" gorm:"size:100;not null"`
+	Password     string  `json:"-" gorm:"size:100;not null"`
+	Salt         string  `json:"-" gorm:"size:64;not null"`
+	Permissions  string  `json:"-" gorm:"size:20"`
+	ShopCodename *string `json:"-"`
+	Temporary    bool    `json:"temporary"`
 }
 
 type Shop struct {
-	ID          uuid.UUID  `json:"-" gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
+	ID          string     `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
 	Name        *string    `json:"name" gorm:"size:100;not null"`
 	Codename    string     `json:"codename" gorm:"size:100;not null"`
 	Description *string    `json:"description"`
 	User        User       `json:"-" gorm:"not null"`
-	UserID      uuid.UUID  `json:"-"`
-	Locations   []Location `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
+	UserID      string     `json:"-"`
+	Locations   []Location `json:"locations" gorm:"constraint:OnDelete:CASCADE;"`
 	Products    []Product  `json:"-" gorm:"constraint:OnDelete:CASCADE;"`
 }
 
 type Product struct {
-	ID          uuid.UUID       `json:"-" gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
+	ID          string          `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
 	Name        *string         `json:"name" gorm:"size:100;not null"`
 	Codename    string          `json:"codename" gorm:"size:100;not null"`
 	Description *string         `json:"description"`
 	Image       string          `json:"image" gorm:"size:500"`
-	Amount      decimal.Decimal `json:"amount" sql:"type:decimal(20,8);"  gorm:"not null"`
+	Price      decimal.Decimal `json:"price" sql:"type:decimal(20,8);"  gorm:"not null"`
 	Public      bool            `json:"public"`
 	Quantity    int             `json:"quantity" gorm:"not null"`
 	Shop        Shop            `json:"shop" gorm:"not null"`
-	ShopID      uuid.UUID       `json:"-" gorm:"not null"`
+	ShopID      string          `json:"-" gorm:"not null"`
 	Categories  []Category      `json:"categories" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
 }
 
 type Location struct {
-	ID     uuid.UUID `gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
-	Type   string    `json:"type"  gorm:"size:30;not null"`
-	Lat    float32   `json:"lat"  gorm:"not null"`
-	Lng    float32   `json:"lng"  gorm:"not null"`
-	Shop   Shop      `json:"-" gorm:"not null"`
-	ShopID uuid.UUID `json:"-"`
+	ID     string  `gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
+	Type   string  `json:"type"  gorm:"size:30;not null"`
+	Lat    float32 `json:"lat"  gorm:"not null"`
+	Lng    float32 `json:"lng"  gorm:"not null"`
+	Shop   Shop    `json:"-" gorm:"not null"`
+	ShopID string  `json:"-"`
 }
 
 type Order struct {
-	ID       uuid.UUID `gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
-	Email    string    `json:"email" gorm:"size:100;not null"`
-	Status   int       `json:"status" gorm:"not null"`
-	Note     string    `json:"note" gorm:"size:100;not null"`
-	Shipping string    `json:"shipping"`
-	Payment  string    `json:"payment" gorm:"size:100"`
-	// OrderedProducts []OrderedProduct `json:"orderedProducts" gorm:"foreignKey:ID;"`
+	ID              string           `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
+	Codename        string           `json:"codename"`
+	Email           string           `json:"email" gorm:"size:100;not null"`
+	Status          int              `json:"status" gorm:"not null"`
+	Note            string           `json:"note" gorm:"size:100;not null"`
+	ShippingType    int              `json:"shippingType"`
+	Address         string           `json:"address"`
+	PaymentType     int              `json:"paymentType"`
+	OrderedProducts []OrderedProduct `json:"orderedProducts"`
+	TotalPrice      decimal.Decimal
 }
 
 type OrderedProduct struct {
-	ID        uuid.UUID `gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
-	Order     Order     `json:"order" gorm:"not null"`
-	OrderID   uuid.UUID `json:"-" gorm:"not null"`
-	Product   Product   `json:"product" gorm:"not null"`
-	ProductID uuid.UUID `json:"-" gorm:"not null"`
-	Quantity  int       `json:"quantity" gorm:"not null"`
+	ID        string  `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
+	Order     Order   `json:"order" gorm:"not null"`
+	OrderID   string  `json:"-" gorm:"not null"`
+	Product   Product `json:"product" gorm:"not null"`
+	ProductID string  `json:"-" gorm:"not null"`
+	UnitPrice decimal.Decimal
+	Quantity  int `json:"quantity" gorm:"not null"`
 }
 
 type Category struct {
-	ID       uuid.UUID `json:"id" gorm:"primary_key;type:uuid;default:uuid_generate_v4()"`
+	ID       string    `json:"id" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt time.Time
 	Name     *string   `json:"name" gorm:"size:100;not null"`
 	Codename string    `json:"codename" gorm:"size:100;not null"`
 	File     string    `json:"file" gorm:"size:500"`
@@ -90,5 +100,6 @@ type RefreshToken struct {
 }
 
 type ErrorJSON struct {
-	Message string `json:"message"`
+	Message string      `json:"message"`
+	Payload interface{} `json:"payload"`
 }

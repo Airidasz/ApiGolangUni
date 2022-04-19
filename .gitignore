@@ -3,3 +3,4 @@ Dockerfile
 Dockerfile copy
 docker-compose.yaml
 images/*
+.VSCodeCounter
