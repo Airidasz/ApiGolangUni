@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -47,7 +50,13 @@ func HandleRequests() {
 	r.HandleFunc("/orders", isAdmin(ChangeOrder)).Methods("PUT")
 	r.HandleFunc("/orders", isAuthorized(GetOrders)).Methods("GET")
 
-	fmt.Println("Opened a server on port :8080")
+	// CORS policy
+	credentials := handlers.AllowCredentials()
+	methods := handlers.AllowedMethods([]string{"POST", "GET", "PUT", "DELETE"})
 
-	http.ListenAndServe(":8080", r)
+	corsUrls := strings.Split(os.Getenv("CORS_ALLOWED_URLS"), ",")
+	origins := handlers.AllowedOrigins(corsUrls)
+
+	fmt.Println("Opened a server on port :8080")
+	http.ListenAndServe(":8080", handlers.CORS(credentials, methods, origins)(r))
 }
