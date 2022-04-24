@@ -16,7 +16,7 @@ func GetOrders(w http.ResponseWriter, r *http.Request) {
 
 	var orders []Order
 
-	tx := db.Preload(clause.Associations).Preload("OrderedProducts").Preload("OrderedProducts.Product")
+	tx := db.Unscoped().Preload(clause.Associations).Preload("OrderedProducts").Preload("OrderedProducts.Product")
 
 	// Only filter if user is not an admin
 	if !strings.Contains(permissions, "a") {
@@ -76,7 +76,7 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	errors := make(map[string]string)
 
 	totalPrice := decimal.Zero
-
+	productCache := make(map[string]Product)
 	for _, orderedProduct := range request.OrderedProducts {
 		var product Product
 
@@ -101,6 +101,8 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		totalPrice = totalPrice.Add(product.Price.Mul(quantityDecimal))
 
 		orderedProducts = append(orderedProducts, newProductOrder)
+
+		productCache[product.ID] = product
 	}
 
 	// Return errors
@@ -139,6 +141,10 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	db.Create(&order)
 
 	for _, orderedProduct := range orderedProducts {
+		product := productCache[orderedProduct.ProductID]
+		product.Quantity -= orderedProduct.Quantity
+		db.Save(&product)
+
 		orderedProduct.OrderID = order.ID
 		db.Create(&orderedProduct)
 	}

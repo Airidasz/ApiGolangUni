@@ -22,7 +22,7 @@ func GetShopOrders(w http.ResponseWriter, r *http.Request) {
 
 	var orderedProducts []OrderedProduct
 
-	db.Preload(clause.Associations).Joins("left join products on products.id  = ordered_products.product_id").Where("products.shop_id = ?", shop.ID).Order("created_at desc").Find(&orderedProducts)
+	db.Preload(clause.Associations).Select("ordered_products.product_id, sum(ordered_products.quantity) as quantity").Joins("left join products on products.id  = ordered_products.product_id").Where("products.shop_id = ?", shop.ID).Group("product_id").Find(&orderedProducts)
 	JSONResponse(orderedProducts, w)
 }
 
@@ -181,7 +181,7 @@ func DeleteShop(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	shopName := params["shop"]
 
-	err := db.Unscoped().Select("Locations", "Products").Where("codename = ?", shopName).Delete(&Shop{}).Error
+	err := db.Select("Locations", "Products").Where("codename = ?", shopName).Delete(&Shop{}).Error
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return

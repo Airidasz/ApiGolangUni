@@ -1,0 +1,11 @@
+version: "3.7"
+services:
+  ukiaiapi:
+    network_mode: "host" # Allows the container to reach localhost. Remove if not needed 
+    env_file:
+      - .env
+    build: .
+    # ports: # Comment out when using network_mode: "host"
+    #   - 8080:8080
+    volumes:
+      - ./images:/data/images

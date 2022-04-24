@@ -8,16 +8,35 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gorilla/schema"
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+func GetPublicOrOwnerProducts(tx *gorm.DB, r *http.Request) {
+	email := GetClaim("email", r)
+
+	statement := "public = ?"
+	shopID := ""
+	if email != nil {
+		var shop Shop
+
+		err := GetShopByEmail(*email, &shop, false, "id")
+		if err == nil {
+			statement += " or shop_id = ?"
+			shopID = shop.ID
+		}
+	}
+
+	tx.Where(statement, true, shopID)
+}
 
 func GetProducts(w http.ResponseWriter, r *http.Request) {
 	products := make([]Product, 0)
 
 	tx := db.Preload(clause.Associations)
+	GetPublicOrOwnerProducts(tx, r)
 
 	r.ParseForm()
-
 	requestedCategories := r.Form["category"]
 
 	if len(requestedCategories) > 0 {
@@ -29,7 +48,7 @@ func GetProducts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var productIDs []string
-		db.Table("product_categories").Select("product_id").Where("category_id IN ?", categoryIDs).Take(&productIDs)
+		db.Table("product_categories").Select("product_id").Where("category_id IN ?", categoryIDs).Find(&productIDs)
 
 		if len(productIDs) == 0 {
 			JSONResponse(products, w)
@@ -53,19 +72,6 @@ func GetProducts(w http.ResponseWriter, r *http.Request) {
 		tx.Where("shop_id in ?", shopIDs)
 	}
 
-	tx.Where(Product{Public: true})
-
-	email := GetClaim("email", r)
-
-	if email != nil {
-		var shop Shop
-
-		err := GetShopByEmail(*email, &shop, false, "id")
-		if err == nil {
-			tx.Or("shop_id = ?", shop.ID)
-		}
-	}
-
 	tx.Order("created_at desc").Find(&products)
 	JSONResponse(products, w)
 }
@@ -76,7 +82,10 @@ func GetProduct(w http.ResponseWriter, r *http.Request) {
 
 	var product Product
 
-	err := db.Preload(clause.Associations).Where("codename = ?", productName).Take(&product).Error
+	tx := db.Preload(clause.Associations)
+	GetPublicOrOwnerProducts(tx, r)
+
+	err := tx.Where("codename = ?", productName).Take(&product).Error
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -222,6 +231,10 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 		product.Image = image
 	}
 
+	if !isEdit && product.Description == nil {
+		product.Description = new(string)
+	}
+
 	// Add or save to Database
 	if isEdit {
 		err = db.Save(&product).Error
@@ -243,5 +256,5 @@ func DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	productName := params["product"]
 
-	db.Unscoped().Where("codename = ?", productName).Delete(&Product{})
+	db.Where("codename = ?", productName).Delete(&Product{})
 }

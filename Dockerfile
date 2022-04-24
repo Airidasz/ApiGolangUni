@@ -7,6 +7,9 @@ COPY go.sum ./
 RUN go mod download
 
 COPY *.go ./
+COPY *.env ./
+
+RUN mkdir /app/images
 
 RUN go build -o /docker-gs-ping
 

@@ -49,7 +49,7 @@ func main() {
 		log.Fatal(err)
 	}
 	//make work?
-	//db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
 	db.AutoMigrate(&User{}, &Category{}, &Shop{}, &Location{}, &Product{}, &RefreshToken{}, &OrderedProduct{}, &Order{})
 
 	HandleRequests()
