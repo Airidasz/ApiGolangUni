@@ -10,6 +10,18 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+func OnProductChange(product Product) {
+	if ProductHasChildren(product.ID) {
+		product.BaseProductID = new(string)
+		*product.BaseProductID = product.ID
+		product.Public = false
+		db.Save(&product)
+		db.Delete(&product)
+	} else {
+		db.Unscoped().Delete(&product)
+	}
+}
+
 func GetOrders(w http.ResponseWriter, r *http.Request) {
 	email := GetClaim("email", r)
 	permissions := strings.ToLower(*GetClaim("permissions", r))
@@ -92,7 +104,6 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 		}
 
 		newProductOrder := OrderedProduct{
-			UnitPrice: product.Price,
 			ProductID: product.ID,
 			Quantity:  orderedProduct.Quantity,
 		}
@@ -141,11 +152,17 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	db.Create(&order)
 
 	for _, orderedProduct := range orderedProducts {
+		// Reduce quantity
 		product := productCache[orderedProduct.ProductID]
 		product.Quantity -= orderedProduct.Quantity
 		db.Save(&product)
 
+		productCopy := CreateProductCopy(product)
+
+		// Set parameters for order
 		orderedProduct.OrderID = order.ID
+		orderedProduct.UnitPrice = productCopy.Price
+		orderedProduct.ProductID = productCopy.ID
 		db.Create(&orderedProduct)
 	}
 
@@ -180,5 +197,16 @@ func ChangeOrder(w http.ResponseWriter, r *http.Request) {
 
 	db.Take(&order, "codename = ?", *request.Codename)
 	order.Status = *request.Status
-	db.Save(&order)
+	err = db.Save(&order).Error
+
+	// if status = 4 (delivered) check
+	// if order was done by temp user and delete
+	if err == nil && order.Status == 4 {
+		var user User
+		err = db.Where("email = ? AND temporary = ?", order.Email, true).Take(&user).Error
+		if err == nil {
+			db.Unscoped().Delete(&user)
+		}
+	}
+
 }

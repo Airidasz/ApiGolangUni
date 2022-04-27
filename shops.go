@@ -165,7 +165,7 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 
 	CreateLocations(shop, request.Locations)
 
-	JSONResponse(shop, w)
+	JSONResponse(&shop, w)
 }
 
 func CreateLocations(shop Shop, locations []Location) {

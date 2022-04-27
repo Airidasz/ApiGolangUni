@@ -34,19 +34,20 @@ type Shop struct {
 }
 
 type Product struct {
-	ID          string          `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
-	CreatedAt   time.Time       `json:"-"`
-	DeletedAt   gorm.DeletedAt  `json:"-" gorm:"index"`
-	Name        *string         `json:"name" gorm:"size:100;not null"`
-	Codename    string          `json:"codename" gorm:"size:100;not null"`
-	Description *string         `json:"description"`
-	Image       string          `json:"image" gorm:"size:500"`
-	Price       decimal.Decimal `json:"price" sql:"type:decimal(20,8);"  gorm:"not null"`
-	Public      bool            `json:"public"`
-	Quantity    int             `json:"quantity" gorm:"not null"`
-	Shop        Shop            `json:"shop" gorm:"not null"`
-	ShopID      string          `json:"-" gorm:"not null"`
-	Categories  []Category      `json:"categories" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
+	ID            string          `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	CreatedAt     time.Time       `json:"-"`
+	DeletedAt     gorm.DeletedAt  `json:"-" gorm:"index"`
+	Name          *string         `json:"name" gorm:"size:100;not null"`
+	Codename      string          `json:"codename" gorm:"size:100;not null"`
+	Description   *string         `json:"description"`
+	Image         string          `json:"image" gorm:"size:500"`
+	Price         decimal.Decimal `json:"price" sql:"type:decimal(20,8);"  gorm:"not null"`
+	Public        bool            `json:"public"`
+	Quantity      int             `json:"quantity" gorm:"not null"`
+	BaseProductID *string         `json:"-" gorm:"default:null;size:40"`
+	Shop          Shop            `json:"shop" gorm:"not null"`
+	ShopID        string          `json:"-" gorm:"not null"`
+	Categories    []Category      `json:"categories" gorm:"many2many:product_categories;constraint:OnDelete:CASCADE;"`
 }
 
 type Location struct {

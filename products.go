@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -12,6 +13,26 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+func ProductHasChildren(productID string) bool {
+	err := db.Where(Product{BaseProductID: &productID}).Take(&Product{}).Error
+	return err == nil
+}
+
+func CreateProductCopy(product Product) Product {
+	var productCopy Product
+	if !ProductHasChildren(product.ID) {
+		productCopy = product
+
+		productCopy.BaseProductID = new(string)
+		*productCopy.BaseProductID = product.ID
+		productCopy.ID = ""
+		productCopy.Public = false
+		db.Create(&productCopy)
+	}
+
+	return productCopy
+}
+
 func GetPublicOrOwnerProducts(tx *gorm.DB, r *http.Request) {
 	email := GetClaim("email", r)
 
@@ -22,12 +43,12 @@ func GetPublicOrOwnerProducts(tx *gorm.DB, r *http.Request) {
 
 		err := GetShopByEmail(*email, &shop, false, "id")
 		if err == nil {
-			statement += " or shop_id = ?"
+			statement += " OR shop_id = ?"
 			shopID = shop.ID
 		}
 	}
 
-	tx.Where(statement, true, shopID)
+	tx.Where("base_product_id is null").Where(statement, true, shopID)
 }
 
 func GetProducts(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +93,7 @@ func GetProducts(w http.ResponseWriter, r *http.Request) {
 		tx.Where("shop_id in ?", shopIDs)
 	}
 
-	tx.Order("created_at desc").Find(&products)
+	tx.Debug().Order("created_at desc").Find(&products)
 	JSONResponse(products, w)
 }
 
@@ -150,8 +171,10 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var productCopy Product
 	if isEdit {
 		db.Preload("Categories").Where("codename = ?", productName).Take(&product)
+		productCopy = product
 	}
 
 	// Name
@@ -235,16 +258,15 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 		product.Description = new(string)
 	}
 
-	// Add or save to Database
 	if isEdit {
-		err = db.Save(&product).Error
-	} else {
-		err = db.Create(&product).Error
+		OnProductChange(productCopy)
 	}
 
-	if err != nil {
+	product.ID = ""
+
+	if err = db.Create(&product).Error; err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "you must set a price"
+		errorStruct.Message = "could not save product"
 		JSONResponse(errorStruct, w)
 		return
 	}
@@ -256,5 +278,21 @@ func DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	productName := params["product"]
 
-	db.Where("codename = ?", productName).Delete(&Product{})
+	var product Product
+	err := db.Take(&product, "codename = ?", productName).Error
+
+	if err != nil {
+		fmt.Println("err")
+		// bad response
+	}
+
+	if ProductHasChildren(product.ID) {
+		product.BaseProductID = new(string)
+		*product.BaseProductID = product.ID
+		product.Public = false
+		db.Save(&product)
+		db.Delete(&product)
+	} else {
+		db.Unscoped().Delete(&product)
+	}
 }
