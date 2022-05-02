@@ -35,6 +35,16 @@ func JSONResponse(response interface{}, w http.ResponseWriter) {
 	w.Write(json)
 }
 
+func Response(w http.ResponseWriter, httpStatus int, message string, payload ...interface{}) {
+	errorStruct := ErrorJSON{
+		Message: message,
+		Payload: payload,
+	}
+
+	w.WriteHeader(httpStatus)
+	JSONResponse(errorStruct, w)
+}
+
 func GetShopByEmail(email string, shop *Shop, preload bool, params ...string) (err error) {
 	tx := db
 
@@ -52,7 +62,7 @@ func GetShopByEmail(email string, shop *Shop, preload bool, params ...string) (e
 func NameTaken(name string, model interface{}) (err error) {
 	err = db.Take(model, "name = ?", name).Error
 	if err == nil {
-		return errors.New("name taken")
+		return errors.New("šis vardas yra užimtas")
 	}
 
 	return nil
@@ -157,7 +167,7 @@ func ParseCategories(data string) ([]Category, error) {
 	err := json.Unmarshal([]byte(data), &categoryIDs)
 
 	if err != nil {
-		return categories, errors.New("json parse error")
+		return categories, errors.New("blogas duomenų formatas")
 	}
 
 	if len(categoryIDs) > 0 {
@@ -169,7 +179,7 @@ func ParseCategories(data string) ([]Category, error) {
 
 func CreateTempUser(user User) error {
 	if !emailRegex.MatchString(user.Email) {
-		return errors.New("please enter a valid email address")
+		return errors.New("blogas el.pašto formatas")
 	}
 
 	err := CheckEmailAvailability(user.Email)
@@ -178,4 +188,12 @@ func CreateTempUser(user User) error {
 	}
 
 	return db.Create(&user).Error
+}
+
+func HasAdminPermissions(permissions string) bool {
+	return strings.ContainsAny(permissions, "aA")
+}
+
+func HasCourierPermissions(permissions string) bool {
+	return strings.ContainsAny(permissions, "cC")
 }

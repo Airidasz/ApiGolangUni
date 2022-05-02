@@ -10,7 +10,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func HandleRequests() {
+func (a *app) InitRouter() *app {
 	r := mux.NewRouter()
 
 	r.PathPrefix("/images/").Handler(http.FileServer(http.Dir(".")))
@@ -26,10 +26,10 @@ func HandleRequests() {
 	// ========================== Shops ==============================
 	r.HandleFunc("/shops", GetShops).Methods("GET")
 	r.HandleFunc("/shop/orders", isAuthorized(GetShopOrders)).Methods("GET")
+	r.HandleFunc("/shop/orders/{id}", isAuthorized(EditShopOrder)).Methods("PUT")
 	r.HandleFunc("/shop/{shop}", GetShop).Methods("GET")
 	r.HandleFunc("/shops", isAuthorized(CreateShop)).Methods("POST")
 	r.HandleFunc("/shop", isAuthorized(UpdateShop)).Methods("PUT")
-	// r.HandleFunc("/shop/{shop}", isAuthorized(isShopOwner(DeleteShop))).Methods("DELETE")
 
 	// ========================== Products ==============================
 	r.HandleFunc("/products", WithContext(GetProducts)).Methods("GET")
@@ -47,9 +47,20 @@ func HandleRequests() {
 
 	// ========================== Orders ==============================
 	r.HandleFunc("/orders", PlaceOrder).Methods("POST")
-	r.HandleFunc("/orders", isAdmin(ChangeOrder)).Methods("PUT")
+	r.HandleFunc("/orders/{ordernumber}", isAdmin(ChangeOrder)).Methods("PUT")
+	r.HandleFunc("/orders/{ordernumber}/cancel", isAuthorized(CancelOrder)).Methods("PUT")
 	r.HandleFunc("/orders", isAuthorized(GetOrders)).Methods("GET")
 
+	// ========================== Couriers ==============================
+	r.HandleFunc("/couriers", isAdmin(GetCouriers)).Methods("GET")
+	r.HandleFunc("/courier/deliveries", isCourier(GetDeliveries)).Methods("GET")
+	r.HandleFunc("/courier/pickups", isCourier(GetPickups)).Methods("GET")
+
+	a.Router = r
+	return a
+}
+
+func (a *app) Start() {
 	// CORS policy
 	credentials := handlers.AllowCredentials()
 	methods := handlers.AllowedMethods([]string{"POST", "GET", "PUT", "DELETE"})
@@ -58,5 +69,5 @@ func HandleRequests() {
 	origins := handlers.AllowedOrigins(corsUrls)
 
 	fmt.Println("Opened a server on port :8080")
-	http.ListenAndServe(":8080", handlers.CORS(credentials, methods, origins)(r))
+	http.ListenAndServe(":8080", handlers.CORS(credentials, methods, origins)(a.Router))
 }

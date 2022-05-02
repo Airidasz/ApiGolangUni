@@ -29,8 +29,6 @@ func GetCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateCategory(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	r.ParseMultipartForm(10 << 20)
 
 	var request Category
@@ -39,9 +37,7 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
 
 	if len(name) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "category name cannot be empty"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "vardas yra privalomas")
 		return
 	}
 
@@ -53,8 +49,6 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateCategory(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	params := mux.Vars(r)
 	categoryID := params["categoryid"]
 
@@ -64,9 +58,7 @@ func UpdateCategory(w http.ResponseWriter, r *http.Request) {
 
 	err := db.Take(&category, "id = ?", categoryID).Error
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "category not found"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "kategorijos nepavyko rasti")
 		return
 	}
 

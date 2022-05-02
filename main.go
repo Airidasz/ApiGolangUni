@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -28,8 +29,13 @@ var enLtLetterMap = map[string]string{
 	"ž": "z",
 }
 
-func main() {
-	err := godotenv.Load(".env")
+type app struct {
+	DB     *gorm.DB
+	Router *mux.Router
+}
+
+func (a *app) InitDB(env string) *app {
+	err := godotenv.Load(env)
 
 	if err != nil {
 		log.Fatalf("Error loading .env file")
@@ -48,9 +54,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	//make work?
-	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
-	db.AutoMigrate(&User{}, &Category{}, &Shop{}, &Location{}, &Product{}, &RefreshToken{}, &OrderedProduct{}, &Order{})
 
-	HandleRequests()
+	db.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+	db.AutoMigrate(&User{}, &Category{}, &Shop{}, &Location{}, &Product{}, &RefreshToken{}, &OrderedProduct{}, &Order{}, &ShopOrder{})
+
+	a.DB = db
+	return a
+}
+
+func NewApp() *app {
+	return &app{}
+}
+
+func main() {
+	NewApp().InitRouter().InitDB(".env").Start()
 }

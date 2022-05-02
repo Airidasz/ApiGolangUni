@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -18,10 +17,11 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+type permissionValidator func(string) bool
+
 // =========================== Handlers ===================================
 func Login(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-	errorStruct.Message = "bad login information"
+	errorMSG := "blogi duomenys"
 	//Creates a struct used to store data decoded from the body
 	requestData := struct {
 		Name     string `json:"name"`
@@ -35,16 +35,14 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	// Finds user by email in database, if no user, then returns "bad request"
 	err := db.Take(&userDatabaseData, "name = ?", requestData.Name).Error
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, errorMSG)
 		return
 	}
 
 	hashedPassword := GenerateSecurePassword(requestData.Password, userDatabaseData.Salt)
 	//checks if salted hashed password from database matches the sent in salted hashed password
 	if hashedPassword != userDatabaseData.Password {
-		w.WriteHeader(http.StatusBadRequest)
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, errorMSG)
 		return
 	}
 	accessToken, _ := MakeTokens(w, userDatabaseData)
@@ -63,8 +61,6 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func CheckEmail(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	request := struct {
 		Email string `json:"email"`
 	}{""}
@@ -72,17 +68,13 @@ func CheckEmail(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&request)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "unable to parse body to json"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
 		return
 	}
 
 	err = CheckEmailAvailability(request.Email)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "email already in use"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusConflict, "šis el.pašto adresas jau užimtas")
 	}
 }
 
@@ -90,7 +82,6 @@ func CheckEmail(w http.ResponseWriter, r *http.Request) {
 //it is formatted correctly, and tries to create an account in
 //the database
 func CreateAccount(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
 	//Creates a struct used to store data decoded from the body
 	requestData := struct {
 		Name           string `json:"name"`
@@ -103,18 +94,14 @@ func CreateAccount(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&requestData)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "unable to parse body to json"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
 		return
 	}
 
 	res, err := PerformUserDataChecks(requestData.Name, requestData.Email, requestData.Password, requestData.RepeatPassword)
 
 	if err != nil {
-		w.WriteHeader(res)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, res, err.Error())
 		return
 	}
 
@@ -133,7 +120,11 @@ func CreateAccount(w http.ResponseWriter, r *http.Request) {
 		Permissions: permissions,
 		Salt:        salt,
 	}
-	db.Save(&newUser)
+	
+	if err = db.Save(&newUser).Error; err != nil {
+		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
+		return
+	}
 
 	accessToken, _ := MakeTokens(w, newUser)
 
@@ -144,29 +135,24 @@ func CreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func RefreshTokens(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
 	refreshTokenCookie, err := r.Cookie("Refresh-Token")
 
 	if err == nil {
 		claims := jwt.MapClaims{}
 		token, err := jwt.ParseWithClaims(refreshTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("there was an error")
+				return nil, fmt.Errorf("įvyko klaida. bandykite dar kartą")
 			}
 			return signKey, nil
 		})
 
 		if err != nil {
 			w.WriteHeader(http.StatusUnauthorized)
-			errorStruct.Message = err.Error()
-			JSONResponse(errorStruct, w)
 			return
 		}
 
 		if !token.Valid {
 			w.WriteHeader(http.StatusUnauthorized)
-			errorStruct.Message = err.Error()
-			JSONResponse(errorStruct, w)
 			return
 		}
 
@@ -178,17 +164,12 @@ func RefreshTokens(w http.ResponseWriter, r *http.Request) {
 		if oldRefreshToken.DeletedAt.Valid {
 			db.Delete(&RefreshToken{}, "email = ?", email)
 
-			w.WriteHeader(http.StatusForbidden)
-			errorStruct.Message = "token expired"
-			JSONResponse(errorStruct, w)
-
+			Response(w, http.StatusForbidden, "žetono galiojimo laikas pasibaigęs")
 			return
 		}
 
 		if exp, ok := claims["exp"].(int64); ok && exp > time.Now().Unix() {
-			w.WriteHeader(http.StatusUnauthorized)
-			errorStruct.Message = "token expired"
-			JSONResponse(errorStruct, w)
+			Response(w, http.StatusUnauthorized, "žetono galiojimo laikas pasibaigęs")
 			return
 		}
 
@@ -208,8 +189,6 @@ func RefreshTokens(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusUnauthorized)
-	errorStruct.Message = "unauthorized"
-	JSONResponse(errorStruct, w)
 }
 
 // ===================================================================
@@ -220,7 +199,7 @@ func CheckEmailAvailability(email string) error {
 	//if no record of the email is found, returns an error
 	err := db.Take(&User{}, "email = ?", email).Error
 	if err == nil {
-		return errors.New("this email is taken")
+		return errors.New("šis el.pašto adresas jau užimtas")
 	}
 
 	return nil
@@ -230,21 +209,21 @@ func CheckEmailAvailability(email string) error {
 //is correctly formatted
 func PerformUserDataChecks(name string, email string, password string, repeatedPassword string) (httpStatus int, err error) {
 	if len(name) == 0 {
-		return http.StatusNotAcceptable, errors.New("username cannot be empty")
+		return http.StatusBadRequest, errors.New("vardas yra privalomas")
 	}
 
 	err = NameTaken(name, &User{})
 	if err != nil {
-		return http.StatusNotAcceptable, err
+		return http.StatusConflict, err
 	}
 
 	if !emailRegex.MatchString(email) {
-		return http.StatusNotAcceptable, errors.New("please enter a valid email address")
+		return http.StatusBadRequest, errors.New("blogas el.pašto formatas")
 	}
 
 	err = CheckEmailAvailability(email)
 	if err != nil {
-		return http.StatusNotAcceptable, err
+		return http.StatusBadRequest, err
 	}
 
 	err = CheckIfPasswordValid(password, repeatedPassword)
@@ -260,15 +239,15 @@ func PerformUserDataChecks(name string, email string, password string, repeatedP
 //contains at least one number and one capital letter
 func CheckIfPasswordValid(passwordOne string, passwordTwo string) error {
 	if passwordOne != passwordTwo {
-		return errors.New("passwords do not match")
+		return errors.New("slaptažodžiai nesutampa")
 	}
 
 	// if len(passwordOne) < 8 {
-	// 	return errors.New("passwords too short")
+	// 	return errors.New("slaptažodį turi sudaryti bent 8 simboliai")
 	// }
 
 	// if !passwordRegex.MatchString(passwordOne) {
-	// 	return errors.New("passwords needs to contain at least one number and one capital letter")
+	// 	return errors.New("slaptažodį turi sudaryti bent vienas skaičius ir bent viena didžioji raidė")
 	// }
 
 	return nil
@@ -315,30 +294,35 @@ func GenerateSecurePassword(password string, salt string) string {
 	return hex.EncodeToString(hashedPassword)
 }
 
+func isCourier(next http.HandlerFunc) http.HandlerFunc {
+	return CheckPermissions(next, HasCourierPermissions)
+}
+
 func isAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return CheckPermissions(next, HasAdminPermissions)
+}
+
+func CheckPermissions(next http.HandlerFunc, hasPermissions permissionValidator) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		accessTokenCookie, err := r.Cookie("Access-Token")
 		if err == nil {
 			claims := jwt.MapClaims{}
 			token, err := jwt.ParseWithClaims(accessTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("there was an error")
+					return nil, fmt.Errorf("įvyko klaida. bandykite dar kartą")
 				}
 				return signKey, nil
 			})
 
 			if err != nil {
 				w.WriteHeader(http.StatusUnauthorized)
-				JSONResponse(ErrorJSON{
-					Message: err.Error(),
-				}, w)
 				return
 			}
 
 			if token.Valid {
 				permissions := claims["permissions"].(string)
 
-				if hasAdminPermissions(permissions) {
+				if hasPermissions(permissions) {
 					ctx := context.WithValue(r.Context(), ctxKey{}, claims)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -347,21 +331,11 @@ func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusUnauthorized)
-		JSONResponse(ErrorJSON{
-			Message: "unauthorized",
-		}, w)
-
 	})
-}
-
-func hasAdminPermissions(permissions string) bool {
-	return strings.ContainsAny(permissions, "aA")
 }
 
 func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var errorStruct ErrorJSON
-
 		params := mux.Vars(r)
 		productName := params["product"]
 
@@ -369,9 +343,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 		err := db.Where("codename = ?", productName).First(&product).Error
 
 		if err != nil {
-			errorStruct.Message = "product not found"
-			w.WriteHeader(http.StatusBadRequest)
-			JSONResponse(errorStruct, w)
+			Response(w, http.StatusBadRequest, "produkto rasti nepavyko")
 			return
 		}
 
@@ -381,9 +353,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 		db.Preload(clause.Associations).Take(&shop, "id = ?", product.ShopID)
 
 		if email == nil || shop.User.Email != *email {
-			errorStruct.Message = "you cannot modify this product"
-			w.WriteHeader(http.StatusUnauthorized)
-			JSONResponse(errorStruct, w)
+			Response(w, http.StatusUnauthorized, "jūs negalite koreguoti šio produkto")
 			return
 		}
 
@@ -399,7 +369,7 @@ func WithContext(next http.HandlerFunc) http.HandlerFunc {
 			jwt.ParseWithClaims(accessTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
 				_, ok := token.Method.(*jwt.SigningMethodHMAC)
 				if !ok {
-					return nil, fmt.Errorf("there was an error")
+					return nil, fmt.Errorf("įvyko klaida, bandykite dar kartą")
 				}
 				return signKey, nil
 			})
@@ -412,22 +382,18 @@ func WithContext(next http.HandlerFunc) http.HandlerFunc {
 
 func isAuthorized(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var errorStruct ErrorJSON
-
 		accessTokenCookie, err := r.Cookie("Access-Token")
 		if err == nil {
 			claims := jwt.MapClaims{}
 			token, err := jwt.ParseWithClaims(accessTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
 				_, ok := token.Method.(*jwt.SigningMethodHMAC)
 				if !ok {
-					return nil, fmt.Errorf("there was an error")
+					return nil, fmt.Errorf("įvyko klaida, bandykite dar kartą")
 				}
 				return signKey, nil
 			})
 
 			if err != nil {
-				errorStruct.Message = err.Error()
-				JSONResponse(errorStruct, w)
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
@@ -439,8 +405,6 @@ func isAuthorized(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		errorStruct.Message = "unauthorized"
-		JSONResponse(errorStruct, w)
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 }

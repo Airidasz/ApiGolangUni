@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -20,10 +22,78 @@ func GetShopOrders(w http.ResponseWriter, r *http.Request) {
 	var shop Shop
 	GetShopByEmail(*email, &shop, false, "id")
 
-	var orderedProducts []OrderedProduct
+	var shopOrders []ShopOrder
 
-	db.Preload(clause.Associations).Select("ordered_products.product_id, sum(ordered_products.quantity) as quantity").Joins("left join products on products.id  = ordered_products.product_id").Where("products.shop_id = ?", shop.ID).Group("product_id").Find(&orderedProducts)
-	JSONResponse(orderedProducts, w)
+	tx := db.Unscoped().Preload(clause.Associations).Preload("Order", func(db *gorm.DB) *gorm.DB {
+		return db.Order("pickup_date")
+	}).Preload("OrderedProducts").Preload("OrderedProducts.Product")
+
+	tx.Where("shop_id = ?", shop.ID).Find(&shopOrders)
+
+	JSONResponse(shopOrders, w)
+}
+
+func EditShopOrder(w http.ResponseWriter, r *http.Request) {
+	var user User
+	email := GetClaim("email", r)
+	db.Take(&user, "email = ?", email)
+
+	admin := strings.ContainsAny(user.Permissions, "aA")
+	courier := strings.ContainsAny(user.Permissions, "cC")
+
+	var shop Shop
+	if !admin && !courier {
+		GetShopByEmail(*email, &shop, false, "id")
+	}
+
+	params := mux.Vars(r)
+	shopOrderID := params["id"]
+
+	var shopOrder ShopOrder
+	db.Take(&shopOrder, "id = ?", shopOrderID)
+
+	if !admin && !courier && shopOrder.ShopID != shop.ID {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	request := struct {
+		Status    *int    `json:"status"`
+		Message   *string `json:"message"`
+		Collector *string `json:"collector"`
+	}{nil, nil, nil}
+
+	err := json.NewDecoder(r.Body).Decode(&request)
+
+	if err != nil {
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
+		return
+	}
+
+	if request.Status != nil {
+		shopOrder.Status = *request.Status
+	}
+
+	if request.Message != nil {
+		shopOrder.Message = *request.Message
+	}
+
+	if admin && request.Collector != nil {
+		var collector User
+		err = db.Take(&collector, "email = ?", request.Collector).Error
+
+		if err == nil {
+			shopOrder.CollectedBy = collector.ID
+		}
+	}
+
+	err = db.Save(&shopOrder).Error
+	if err != nil {
+		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
+		return
+	}
+
+	OnShopOrderChange(shopOrder)
 }
 
 func GetShop(w http.ResponseWriter, r *http.Request) {
@@ -42,14 +112,10 @@ func GetShop(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateShop(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	email := GetClaim("email", r)
 	err := GetShopByEmail(*email, &Shop{}, false)
 	if err == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "second shop cannot be created"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "galite turėti tik vieną parduotuvę")
 		return
 	}
 
@@ -58,25 +124,24 @@ func CreateShop(w http.ResponseWriter, r *http.Request) {
 	err = json.NewDecoder(r.Body).Decode(&shop)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
 		return
 	}
 
 	// Info validation
 	if shop.Name == nil || *shop.Name == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "name cannot be empty"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "vardas yra privalomas")
+		return
+	}
+
+	if shop.Address == nil || *shop.Address == "" {
+		Response(w, http.StatusBadRequest, "adresas yra privalomas")
 		return
 	}
 
 	err = NameTaken(*shop.Name, &Shop{})
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusConflict, err.Error())
 		return
 	}
 
@@ -92,9 +157,7 @@ func CreateShop(w http.ResponseWriter, r *http.Request) {
 	shop.User = user
 	err = db.Create(&shop).Error
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
 		return
 	}
 
@@ -112,8 +175,6 @@ func CreateShop(w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateShop(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	// Check if user has a shop
 	email := GetClaim("email", r)
 
@@ -121,9 +182,7 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 	err := GetShopByEmail(*email, &shop, false)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "shop not found, please create a shop"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "jūs neturite parduotuvės")
 		return
 	}
 
@@ -131,16 +190,12 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 	err = json.NewDecoder(r.Body).Decode(&request)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
 		return
 	}
 
 	if request.Name != nil && *request.Name == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "name cannot be empty"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "vardas yra privalomas")
 		return
 	}
 
@@ -161,7 +216,15 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 		shop.Description = request.Description
 	}
 
-	db.Save(&shop)
+	if request.Address != nil {
+		shop.Address = request.Address
+	}
+
+	err = db.Save(&shop).Error 
+	if err != nil {
+		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
+		return
+	}
 
 	CreateLocations(shop, request.Locations)
 
@@ -174,16 +237,5 @@ func CreateLocations(shop Shop, locations []Location) {
 	for _, location := range locations {
 		location.ShopID = shop.ID
 		db.Create(&location)
-	}
-}
-
-func DeleteShop(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	shopName := params["shop"]
-
-	err := db.Select("Locations", "Products").Where("codename = ?", shopName).Delete(&Shop{}).Error
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
 	}
 }

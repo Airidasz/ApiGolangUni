@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -13,14 +12,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func ProductHasChildren(productID string) bool {
-	err := db.Where(Product{BaseProductID: &productID}).Take(&Product{}).Error
+func ProductIsOrdered(productID string) bool {
+	err := db.Where("product_id = ?", productID).Take(&OrderedProduct{}).Error
 	return err == nil
 }
 
 func CreateProductCopy(product Product) Product {
 	var productCopy Product
-	if !ProductHasChildren(product.ID) {
+	if err := db.Where(Product{BaseProductID: &product.ID}).Take(&productCopy).Error; err != nil {
 		productCopy = product
 
 		productCopy.BaseProductID = new(string)
@@ -93,7 +92,7 @@ func GetProducts(w http.ResponseWriter, r *http.Request) {
 		tx.Where("shop_id in ?", shopIDs)
 	}
 
-	tx.Debug().Order("created_at desc").Find(&products)
+	tx.Order("created_at desc").Find(&products)
 	JSONResponse(products, w)
 }
 
@@ -116,8 +115,6 @@ func GetProduct(w http.ResponseWriter, r *http.Request) {
 }
 
 func AddEditProduct(w http.ResponseWriter, r *http.Request) {
-	var errorStruct ErrorJSON
-
 	params := mux.Vars(r)
 	productName := params["product"]
 	var product Product
@@ -134,9 +131,7 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 		db.Where("user_id = ?", user.ID).Take(&shop)
 
 		if shop.Name == nil {
-			w.WriteHeader(http.StatusBadRequest)
-			errorStruct.Message = "no shop detected, please create a shop before creating a product"
-			JSONResponse(errorStruct, w)
+			Response(w, http.StatusBadRequest, "prieš kuriant prekę privalote susikurti parduotuvę")
 			return
 		}
 
@@ -165,9 +160,7 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&request, r.Form)
 
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = err.Error()
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "blogi duomenys, bandykite dar kartą")
 		return
 	}
 
@@ -179,9 +172,7 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 
 	// Name
 	if !isEdit && (request.Name == nil || len(*request.Name) == 0) {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "product name cannot be empty"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "produkto vardas privalomas")
 		return
 	}
 
@@ -192,16 +183,12 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 
 	// Quantity
 	if request.Quantity != nil && *request.Quantity < 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "quantity cannot be less than zero"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "kiekis turi būti didesnis už 0")
 		return
 	}
 
 	if !isEdit && request.Quantity == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "you must set a quantity"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "kiekis yra privalomas")
 		return
 	}
 
@@ -211,16 +198,12 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 
 	// Amount
 	if request.Price != nil && *request.Price < -1 {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "price cannot be less than zero"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "kaina turi būti didesnis už 0")
 		return
 	}
 
 	if !isEdit && request.Price == nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "you must set a price"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "kaina yra privaloma")
 		return
 	}
 
@@ -265,10 +248,14 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 	product.ID = ""
 
 	if err = db.Create(&product).Error; err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		errorStruct.Message = "could not save product"
-		JSONResponse(errorStruct, w)
+		Response(w, http.StatusBadRequest, "įvyko klaida bandant išsaugoti produktą")
 		return
+	}
+
+	if isEdit {
+		db.Table("product_categories").Where("product_id = ?", productCopy.ID).Update("product_id", product.ID)
+	} else {
+		w.WriteHeader(http.StatusCreated)
 	}
 
 	JSONResponse(product, w)
@@ -282,17 +269,9 @@ func DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	err := db.Take(&product, "codename = ?", productName).Error
 
 	if err != nil {
-		fmt.Println("err")
-		// bad response
+		Response(w, http.StatusBadRequest, "įvyko klaida trintant produktą")
+		return
 	}
 
-	if ProductHasChildren(product.ID) {
-		product.BaseProductID = new(string)
-		*product.BaseProductID = product.ID
-		product.Public = false
-		db.Save(&product)
-		db.Delete(&product)
-	} else {
-		db.Unscoped().Delete(&product)
-	}
+	OnProductChange(product)
 }
