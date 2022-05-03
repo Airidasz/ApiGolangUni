@@ -116,8 +116,9 @@ type Category struct {
 }
 
 type RefreshToken struct {
-	Token     string         `gorm:"primaryKey"`
-	Email     string         `gorm:"not null"`
+	ID        string         `json:"-" gorm:"primary_key;size:40;default:uuid_generate_v4()"`
+	Token     string         `gorm:"not null;index"`
+	Email     string         `gorm:"not null;index"`
 	CreatedAt time.Time      `json:"-"`
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }

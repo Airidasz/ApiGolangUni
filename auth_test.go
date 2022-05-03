@@ -10,11 +10,12 @@ import (
 )
 
 type TestStruct struct {
-	name     string
-	body     map[string]interface{}
-	response *jsonpath.AssertionChain
-	success  bool
-	expected int
+	name        string
+	body        map[string]interface{}
+	accessToken *string
+	response    *jsonpath.AssertionChain
+	success     bool
+	expected    int
 }
 
 func TestRegister(t *testing.T) {
@@ -40,11 +41,8 @@ func TestRegister(t *testing.T) {
 	app := NewApp().InitRouter().InitDB(".env-test")
 
 	t.Cleanup(func() {
-		// delete users whose names include "test"
-		app.DB.Unscoped().Delete(&User{}, "name ~ ?", "test")
-
-		db, _ := app.DB.DB()
-		db.Close()
+		app.DB.Unscoped().Delete(&User{}, "name ~ ?", "testUser")
+		app.CloseDbTest()
 	})
 
 	for _, c := range cases {
@@ -93,8 +91,7 @@ func TestLogin(t *testing.T) {
 	app := NewApp().InitRouter().InitDB(".env-test")
 
 	t.Cleanup(func() {
-		db, _ := app.DB.DB()
-		db.Close()
+		app.CloseDbTest()
 	})
 
 	for _, c := range cases {

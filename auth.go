@@ -120,7 +120,7 @@ func CreateAccount(w http.ResponseWriter, r *http.Request) {
 		Permissions: permissions,
 		Salt:        salt,
 	}
-	
+
 	if err = db.Save(&newUser).Error; err != nil {
 		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
 		return
@@ -300,6 +300,10 @@ func isCourier(next http.HandlerFunc) http.HandlerFunc {
 
 func isAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return CheckPermissions(next, HasAdminPermissions)
+}
+
+func isFarmer(next http.HandlerFunc) http.HandlerFunc {
+	return CheckPermissions(next, HasFarmerPermissions)
 }
 
 func CheckPermissions(next http.HandlerFunc, hasPermissions permissionValidator) http.HandlerFunc {

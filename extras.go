@@ -194,6 +194,14 @@ func HasAdminPermissions(permissions string) bool {
 	return strings.ContainsAny(permissions, "aA")
 }
 
+func HasFarmerPermissions(permissions string) bool {
+	return strings.ContainsAny(permissions, "fF")
+}
+
 func HasCourierPermissions(permissions string) bool {
 	return strings.ContainsAny(permissions, "cC")
+}
+
+func ToString(v interface{}) string {
+	return fmt.Sprintf("%s", v)
 }

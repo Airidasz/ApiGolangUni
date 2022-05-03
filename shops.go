@@ -220,7 +220,7 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 		shop.Address = request.Address
 	}
 
-	err = db.Save(&shop).Error 
+	err = db.Save(&shop).Error
 	if err != nil {
 		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
 		return

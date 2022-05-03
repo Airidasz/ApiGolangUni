@@ -149,7 +149,7 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	shopOrders := make(map[string]string)
 	// Create ordered products
-	for shopID, _ := range shopsWithOrders {
+	for shopID := range shopsWithOrders {
 		shopOrder := ShopOrder{
 			OrderID: order.ID,
 			ShopID:  shopID,

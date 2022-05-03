@@ -21,54 +21,116 @@ func InitAccount(a *app, name string) (user User, accessToken string, refreshTok
 	return seller, access, refresh
 }
 
-func (app * app) CleanupAfterTest() {
-	app.DB.Unscoped().Delete(&Product{}, "name ~ ?", "test")
-	app.DB.Unscoped().Delete(&Category{}, "name ~ ?", "test")
-	app.DB.Unscoped().Delete(&RefreshToken{})
+func CreateTempProduct(name string, shop_codename string) Product {
+	var shop Shop
+	db.Take(&shop, "codename = ?", shop_codename)
 
+	tempProduct := Product{
+		Name:     &name,
+		Codename: name,
+		Price:    decimal.NewFromInt(10000),
+		Quantity: 10000,
+		ShopID:   shop.ID,
+		Public:   true,
+	}
+
+	db.Save(&tempProduct)
+	return tempProduct
+}
+
+func (app *app) CloseDbTest() {
 	db, _ := app.DB.DB()
 	db.Close()
+}
+
+func TestGetProduct(t *testing.T) {
+	app := NewApp().InitRouter().InitDB(".env-test")
+
+	tempProduct := CreateTempProduct("getProductTest", "seller_shop")
+
+	t.Cleanup(func() {
+		app.DB.Unscoped().Delete(&Product{}, "name = ?", "getProductTest")
+
+		app.CloseDbTest()
+	})
+
+	cases := []TestStruct{
+		{
+			name:     "GetCorrect",
+			body:     map[string]interface{}{"codename": tempProduct.Codename},
+			response: jsonpath.Chain().Equal("name", *tempProduct.Name).Equal("price", ToString(tempProduct.Price)).Equal("quantity", float64(tempProduct.Quantity)),
+			expected: http.StatusOK,
+		},
+		{
+			name:     "DoesNotExist",
+			body:     map[string]interface{}{"codename": "doesNotExist"},
+			expected: http.StatusNotFound,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			url := fmt.Sprintf("/product/%s", c.body["codename"])
+
+			test := apitest.New(c.name).
+				Handler(app.Router).
+				Get(url)
+
+			response := test.Expect(t).Status(c.expected)
+
+			if c.response != nil {
+				response.Assert(c.response.End())
+			}
+
+			response.End()
+		})
+	}
+
 }
 
 func TestEditProduct(t *testing.T) {
 	app := NewApp().InitRouter().InitDB(".env-test")
 
-	_, accessToken, _ := InitAccount(app, "seller")
+	_, SellerOneToken, _ := InitAccount(app, "seller")
+	_, SellerTwoToken, _ := InitAccount(app, "seller2")
 
-	var shop Shop
-	db.Take(&shop, "codename = ?", "seller_shop")
-
-	name := "testEditProduct1"
-	tempProduct := Product{
-		Name:     &name,
-		Codename: "testEditProduct1",
-		Price:    decimal.NewFromInt(10000),
-		Quantity: 10000,
-		ShopID:   shop.ID,
-	}
-
-	db.Save(&tempProduct)
+	tempProduct := CreateTempProduct("testEditProduct1", "seller_shop")
 
 	t.Cleanup(func() {
-		app.CleanupAfterTest()
+		app.DB.Unscoped().Delete(&Product{}, "name = ?", "testEditProduct1")
+		app.CloseDbTest()
 	})
 
 	cases := []TestStruct{
 		{
-			name:     "QuantityCannotBeBelowZero",
+			name:     "UnauthorizedNoToken",
 			body:     map[string]interface{}{"name": "testEditProduct11", "price": 40, "public": false, "quantity": -10},
-			expected: http.StatusBadRequest,
+			expected: http.StatusUnauthorized,
 		},
 		{
-			name:     "PriceCannotBeBelowZeor",
-			body:     map[string]interface{}{"name": "testEditProduct22", "price": -40, "public": false, "quantity": 10},
-			expected: http.StatusBadRequest,
+			name:        "UnauthorizedNotOwner",
+			body:        map[string]interface{}{"name": "testEditProduct11", "price": 40, "public": false, "quantity": -10},
+			accessToken: &SellerTwoToken,
+			expected:    http.StatusUnauthorized,
 		},
 		{
-			name:     "EditCorrect",
-			body:     map[string]interface{}{"name": "testEditProduct33", "price": 40, "public": false, "quantity": 10},
-			response: jsonpath.Chain().Equal("name", "testEditProduct33").Equal("price", "40").NotEqual("quantity", "10000"),
-			expected: http.StatusOK,
+			name:        "QuantityCannotBeBelowZero",
+			body:        map[string]interface{}{"name": "testEditProduct11", "price": 40, "public": false, "quantity": -10},
+			accessToken: &SellerOneToken,
+			expected:    http.StatusBadRequest,
+		},
+		{
+			name:        "PriceCannotBeBelowZeor",
+			body:        map[string]interface{}{"name": "testEditProduct22", "price": -40, "public": false, "quantity": 10},
+			accessToken: &SellerOneToken,
+			expected:    http.StatusBadRequest,
+		},
+		{
+			name:        "EditCorrect",
+			body:        map[string]interface{}{"name": "testEditProduct33", "price": 40, "public": false, "quantity": 10},
+			accessToken: &SellerOneToken,
+			response:    jsonpath.Chain().Equal("name", "testEditProduct33").Equal("price", "40"),
+			expected:    http.StatusOK,
 		},
 	}
 
@@ -78,7 +140,11 @@ func TestEditProduct(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			test := apitest.New(c.name).
 				Handler(app.Router).
-				Put(url).Cookie("Access-Token", accessToken)
+				Put(url)
+
+			if c.accessToken != nil {
+				test.Cookie("Access-Token", *c.accessToken)
+			}
 
 			for key, value := range c.body {
 				test.FormData(key, fmt.Sprint(value))
@@ -96,48 +162,56 @@ func TestEditProduct(t *testing.T) {
 }
 
 func TestAddProduct(t *testing.T) {
-	// Name        *string   `json:"name"`
-	// Description *string   `json:"description"`
-	// Categories  *[]string `json:"categories"`
-	// Price       *float64  `json:"amount"`
-	// Public      *bool     `json:"public"`
-	// Quantity    *int      `json:"quantity"`
-	cases := []TestStruct{
-		{
-			name:     "NameCannotBeEmpty",
-			body:     map[string]interface{}{"price": 40, "public": false, "quantity": 10},
-			expected: http.StatusBadRequest,
-		},
-		{
-			name:     "QuantityCannotBeBelowZero",
-			body:     map[string]interface{}{"name": "testProduct1", "price": 40, "public": false, "quantity": -10},
-			expected: http.StatusBadRequest,
-		},
-		{
-			name:     "PriceCannotBeBelowZeor",
-			body:     map[string]interface{}{"name": "testProduct2", "price": -40, "public": false, "quantity": 10},
-			expected: http.StatusBadRequest,
-		},
-		{
-			name:     "ProductCreateSuccess",
-			body:     map[string]interface{}{"name": "testProduct3", "price": 40, "public": false, "quantity": 10},
-			expected: http.StatusCreated,
-		},
-	}
-
 	app := NewApp().InitRouter().InitDB(".env-test")
 
 	_, accessToken, _ := InitAccount(app, "seller")
 
 	t.Cleanup(func() {
-		app.CleanupAfterTest()
+		app.DB.Unscoped().Delete(&Product{}, "name ~ ?", "testProduct")
+		app.CloseDbTest()
 	})
+
+	cases := []TestStruct{
+		{
+			name:     "UnauthorizedNoShop",
+			body:     map[string]interface{}{"price": 40, "public": false, "quantity": 10},
+			expected: http.StatusUnauthorized,
+		},
+		{
+			name:        "NameCannotBeEmpty",
+			body:        map[string]interface{}{"price": 40, "public": false, "quantity": 10},
+			accessToken: &accessToken,
+			expected:    http.StatusBadRequest,
+		},
+		{
+			name:        "QuantityCannotBeBelowZero",
+			body:        map[string]interface{}{"name": "testProduct1", "price": 40, "public": false, "quantity": -10},
+			accessToken: &accessToken,
+			expected:    http.StatusBadRequest,
+		},
+		{
+			name:        "PriceCannotBeBelowZeor",
+			body:        map[string]interface{}{"name": "testProduct2", "price": -40, "public": false, "quantity": 10},
+			accessToken: &accessToken,
+			expected:    http.StatusBadRequest,
+		},
+		{
+			name:        "ProductCreateSuccess",
+			body:        map[string]interface{}{"name": "testProduct3", "price": 40, "public": false, "quantity": 10},
+			accessToken: &accessToken,
+			expected:    http.StatusCreated,
+		},
+	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			test := apitest.New(c.name).
 				Handler(app.Router).
-				Post("/products").Cookie("Access-Token", accessToken)
+				Post("/products")
+
+			if c.accessToken != nil {
+				test.Cookie("Access-Token", *c.accessToken)
+			}
 
 			for key, value := range c.body {
 				test.FormData(key, fmt.Sprint(value))
