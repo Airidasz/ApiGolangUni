@@ -97,7 +97,7 @@ func TestEditProduct(t *testing.T) {
 	tempProduct := CreateTempProduct("testEditProduct1", "seller_shop")
 
 	t.Cleanup(func() {
-		app.DB.Unscoped().Delete(&Product{}, "name = ?", "testEditProduct1")
+		app.DB.Unscoped().Delete(&Product{}, "name ~ ?", "testEditProduct")
 		app.CloseDbTest()
 	})
 
@@ -167,7 +167,7 @@ func TestAddProduct(t *testing.T) {
 	_, accessToken, _ := InitAccount(app, "seller")
 
 	t.Cleanup(func() {
-		app.DB.Unscoped().Delete(&Product{}, "name ~ ?", "testProduct")
+		app.DB.Unscoped().Delete(&Product{}, "name ~ ?", "testAddProduct")
 		app.CloseDbTest()
 	})
 
@@ -185,19 +185,19 @@ func TestAddProduct(t *testing.T) {
 		},
 		{
 			name:        "QuantityCannotBeBelowZero",
-			body:        map[string]interface{}{"name": "testProduct1", "price": 40, "public": false, "quantity": -10},
+			body:        map[string]interface{}{"name": "testAddProduct1", "price": 40, "public": false, "quantity": -10},
 			accessToken: &accessToken,
 			expected:    http.StatusBadRequest,
 		},
 		{
 			name:        "PriceCannotBeBelowZeor",
-			body:        map[string]interface{}{"name": "testProduct2", "price": -40, "public": false, "quantity": 10},
+			body:        map[string]interface{}{"name": "testAddProduct2", "price": -40, "public": false, "quantity": 10},
 			accessToken: &accessToken,
 			expected:    http.StatusBadRequest,
 		},
 		{
 			name:        "ProductCreateSuccess",
-			body:        map[string]interface{}{"name": "testProduct3", "price": 40, "public": false, "quantity": 10},
+			body:        map[string]interface{}{"name": "testAddProduct3", "price": 40, "public": false, "quantity": 10},
 			accessToken: &accessToken,
 			expected:    http.StatusCreated,
 		},

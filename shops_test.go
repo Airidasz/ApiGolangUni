@@ -160,7 +160,6 @@ func TestAddShop(t *testing.T) {
 
 			if c.body != nil {
 				body, _ := json.Marshal(c.body)
-				fmt.Println(string(body[:]))
 				test.JSON(body)
 			}
 
