@@ -19,13 +19,15 @@ func GetDeliveries(w http.ResponseWriter, r *http.Request) {
 
 	var orders []Order
 
-	tx := db.Unscoped().Preload(clause.Associations)
+	tx := db.Preload(clause.Associations)
 	tx.Preload("ShopOrders", func(db *gorm.DB) *gorm.DB {
 		return db.Order("created_at desc")
 	})
 
 	tx.Preload("ShopOrders.OrderedProducts").Preload("ShopOrders.Collector")
-	tx.Preload("ShopOrders.OrderedProducts.Product").Preload("ShopOrders.Shop")
+	tx.Preload("ShopOrders.OrderedProducts.Product", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	}).Preload("ShopOrders.Shop")
 	tx.Where("status > ?", 2).Where("status < ?", 5).Where("delivered_by = ?", courier.ID)
 
 	tx.Order("created_at desc").Find(&orders)
@@ -43,10 +45,12 @@ func GetPickups(w http.ResponseWriter, r *http.Request) {
 
 	var shopOrders []ShopOrder
 
-	tx := db.Unscoped().Preload(clause.Associations).Preload("OrderedProducts").Preload("OrderedProducts.Product")
+	tx := db.Unscoped().Preload(clause.Associations).Preload("OrderedProducts").Preload("OrderedProducts.Product", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	})
 
 	tx.Joins("left join orders on orders.id = shop_orders.order_id").Where("orders.pickup_date > ?", time.Now())
-	tx.Where("shop_orders.status < ?", 3).Where("collected_by = ?", courier.ID).Order("orders.pickup_date").Find(&shopOrders)
+	tx.Where("shop_orders.status < ? AND shop_orders.status > ?", 3, 0).Where("collected_by = ?", courier.ID).Order("orders.pickup_date").Find(&shopOrders)
 
 	JSONResponse(shopOrders, w)
 }

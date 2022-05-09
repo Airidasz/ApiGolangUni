@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -24,9 +23,11 @@ func GetShopOrders(w http.ResponseWriter, r *http.Request) {
 
 	var shopOrders []ShopOrder
 
-	tx := db.Unscoped().Preload(clause.Associations).Preload("Order", func(db *gorm.DB) *gorm.DB {
+	tx := db.Preload(clause.Associations).Preload("Order", func(db *gorm.DB) *gorm.DB {
 		return db.Order("pickup_date")
-	}).Preload("OrderedProducts").Preload("OrderedProducts.Product")
+	}).Preload("OrderedProducts").Preload("OrderedProducts.Product", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	})
 
 	tx.Where("shop_id = ?", shop.ID).Find(&shopOrders)
 
@@ -38,8 +39,14 @@ func EditShopOrder(w http.ResponseWriter, r *http.Request) {
 	email := GetClaim("email", r)
 	db.Take(&user, "email = ?", email)
 
-	admin := strings.ContainsAny(user.Permissions, "aA")
-	courier := strings.ContainsAny(user.Permissions, "cC")
+	admin := HasAdminPermissions(user.Permissions)
+	courier := HasCourierPermissions(user.Permissions)
+	farmer := HasFarmerPermissions(user.Permissions)
+
+	if !admin && !courier && !farmer {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
 
 	var shop Shop
 	if !admin && !courier {
@@ -199,7 +206,18 @@ func UpdateShop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if request.Address != nil && *request.Address == "" {
+		Response(w, http.StatusBadRequest, "Adresas yra privalomas")
+		return
+	}
+
 	if request.Name != nil {
+		err = NameTaken(*request.Name, &Shop{})
+		if *shop.Name != *request.Name && err != nil {
+			Response(w, http.StatusConflict, err.Error())
+			return
+		}
+
 		shop.Name = request.Name
 		shop.Codename = GenerateCodename(*shop.Name, false)
 

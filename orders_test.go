@@ -9,13 +9,6 @@ import (
 )
 
 func PlaceOrderTemp(t *testing.T) {
-	// 	User            User             `json:"user"`
-	// Note            string           `json:"note"`
-	// Address         *string          `json:"address"`
-	// PaymentType     *int             `json:"paymentType"`
-	// CancelIfMissing bool             `json:"cancelIfMissing"`
-	// OrderedProducts []OrderedProduct `json:"orderedProducts"`
-
 	OrderedProducts := []OrderedProduct{{Quantity: 1}}
 
 	app := NewApp().InitRouter().InitDB(".env-test")
@@ -23,11 +16,6 @@ func PlaceOrderTemp(t *testing.T) {
 	t.Cleanup(func() {
 		app.CloseDbTest()
 	})
-
-	// tempUser := User{
-	// 	Email: "tempTest@tempTest",
-	// 	Temporary: true,
-	// }
 
 	buyer, _, _ := InitAccount(app, "buyer")
 

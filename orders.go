@@ -13,31 +13,21 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func OnProductChange(product Product) {
-	if ProductIsOrdered(product.ID) {
-		product.BaseProductID = new(string)
-		*product.BaseProductID = product.ID
-		product.Public = false
-		db.Save(&product)
-		db.Delete(&product)
-	} else {
-		db.Unscoped().Delete(&product)
-	}
-}
-
 func GetOrders(w http.ResponseWriter, r *http.Request) {
 	email := GetClaim("email", r)
 	permissions := strings.ToLower(*GetClaim("permissions", r))
 
 	var orders []Order
 
-	tx := db.Unscoped().Preload(clause.Associations)
+	tx := db.Preload(clause.Associations)
 	tx.Preload("ShopOrders", func(db *gorm.DB) *gorm.DB {
 		return db.Order("created_at desc")
 	})
 
 	tx.Preload("ShopOrders.OrderedProducts").Preload("ShopOrders.Collector")
-	tx.Preload("ShopOrders.OrderedProducts.Product").Preload("ShopOrders.Shop")
+	tx.Preload("ShopOrders.OrderedProducts.Product", func(db *gorm.DB) *gorm.DB {
+		return db.Unscoped()
+	}).Preload("ShopOrders.Shop")
 	// Only filter if user is not an admin
 	if !strings.ContainsAny(permissions, "aA") {
 		tx.Where("email = ?", email)
@@ -61,22 +51,22 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&request)
 
 	if err != nil {
-		Response(w, http.StatusBadRequest,"blogas duomenų formatas")
+		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
 		return
 	}
 
 	if request.Address == nil {
-		Response(w, http.StatusBadRequest,"adresas yra privalomas")
+		Response(w, http.StatusBadRequest, "adresas yra privalomas")
 		return
 	}
 
 	if request.PaymentType == nil {
-		Response(w, http.StatusBadRequest,"mokėjimo informacija yra privaloma")
+		Response(w, http.StatusBadRequest, "mokėjimo informacija yra privaloma")
 		return
 	}
 
 	if len(request.User.Email) == 0 {
-		Response(w, http.StatusBadRequest,"el.pašto adresas yra privalomas")
+		Response(w, http.StatusBadRequest, "el.pašto adresas yra privalomas")
 		return
 	}
 
@@ -119,7 +109,7 @@ func PlaceOrder(w http.ResponseWriter, r *http.Request) {
 
 	// Return errors
 	if len(errors) > 0 {
-		Response(w, http.StatusBadRequest,"įvyko klaida sukuriant užsakymą", errors)
+		Response(w, http.StatusBadRequest, "įvyko klaida sukuriant užsakymą", errors)
 		return
 	}
 
@@ -189,22 +179,9 @@ func CancelOrder(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	orderNumber := params["ordernumber"]
 
-	request := struct {
-		Status     *int    `json:"status"`
-		Deliverer  *string `json:"deliverer"`
-		PickupDate *string `json:"pickupDate"`
-	}{nil, nil, nil}
-
-	err := json.NewDecoder(r.Body).Decode(&request)
-
-	if err != nil {
-		Response(w, http.StatusBadRequest, "blogas duomenų formatas")
-		return
-	}
-
 	var order Order
 	email := GetClaim("email", r)
-	err = db.Take(&order, "codename = ? AND email = ?", orderNumber, email).Error
+	err := db.Take(&order, "codename = ? AND email = ?", orderNumber, email).Error
 	if err != nil {
 		Response(w, http.StatusBadRequest, "užsakymas nerastas")
 		return
@@ -216,6 +193,8 @@ func CancelOrder(w http.ResponseWriter, r *http.Request) {
 		Response(w, http.StatusInternalServerError, "klaida saugojant duomenis. bandykite dar kartą")
 		return
 	}
+
+	OnOrderChange(order)
 }
 
 func ChangeOrder(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +255,7 @@ func ChangeOrder(w http.ResponseWriter, r *http.Request) {
 
 func DeleteTempUser(email string) {
 	var user User
-	err := db.Where("email = ? AND temporary = ?", email, true).Take(&user).Error
+	err := db.Take(&user, "email = ? AND temporary = ?", email, true).Error
 	if err == nil {
 		db.Unscoped().Delete(&user)
 	}
@@ -285,7 +264,14 @@ func DeleteTempUser(email string) {
 func OnShopOrderChange(shopOrder ShopOrder) {
 	if shopOrder.Status == 1 {
 		var shopOrders []ShopOrder
-		if db.Where("status = 0").Find(&shopOrders).RowsAffected > 0 {
+		if db.Where("status = ? AND order_id = ?", 0, shopOrder.OrderID).Find(&shopOrders).RowsAffected > 0 {
+			return
+		}
+
+		db.Model(&Order{}).Where("id = ?", shopOrder.OrderID).Update("status", 2)
+	} else if shopOrder.Status == 2 {
+		var shopOrders []ShopOrder
+		if db.Where("status < ? AND order_id = ?", 2, shopOrder.OrderID).Find(&shopOrders).RowsAffected > 0 {
 			return
 		}
 

@@ -24,12 +24,12 @@ func (a *app) InitRouter() *app {
 	r.HandleFunc("/refresh", RefreshTokens).Methods("POST")  // -
 
 	// ========================== Shops ==============================
-	r.HandleFunc("/shops", GetShops).Methods("GET")                           // -
-	r.HandleFunc("/shop/orders", isFarmer(GetShopOrders)).Methods("GET")      // ?
-	r.HandleFunc("/shop/orders/{id}", isFarmer(EditShopOrder)).Methods("PUT") // ?
-	r.HandleFunc("/shop/{shop}", GetShop).Methods("GET")                      // ?
-	r.HandleFunc("/shops", isFarmer(CreateShop)).Methods("POST")              // Tested
-	r.HandleFunc("/shop", isFarmer(UpdateShop)).Methods("PUT")                // Tested
+	r.HandleFunc("/shops", GetShops).Methods("GET")                                    // -
+	r.HandleFunc("/shop/orders", isAuthorized(isFarmer(GetShopOrders))).Methods("GET") // ?
+	r.HandleFunc("/shop/orders/{id}", isAuthorized(EditShopOrder)).Methods("PUT")      // ?
+	r.HandleFunc("/shop/{shop}", GetShop).Methods("GET")                               // ?
+	r.HandleFunc("/shops", isAuthorized(isFarmer(CreateShop))).Methods("POST")         // Tested
+	r.HandleFunc("/shop", isAuthorized(isFarmer(UpdateShop))).Methods("PUT")           // Tested
 
 	// ========================== Products ==============================
 	r.HandleFunc("/products", WithContext(GetProducts)).Methods("GET")                                // -
@@ -39,22 +39,22 @@ func (a *app) InitRouter() *app {
 	r.HandleFunc("/product/{product}", isAuthorized(isProductOwner(DeleteProduct))).Methods("DELETE") // ?
 
 	// ========================== Categories ==============================
-	r.HandleFunc("/categories", GetCategories).Methods("GET")                         // - know admin middleware works
-	r.HandleFunc("/category/{categoryid}", GetCategory).Methods("GET")                // -
-	r.HandleFunc("/categories", isAdmin(CreateCategory)).Methods("POST")              // -
-	r.HandleFunc("/category/{categoryid}", isAdmin(UpdateCategory)).Methods("PUT")    // -
-	r.HandleFunc("/category/{categoryid}", isAdmin(DeleteCategory)).Methods("DELETE") // -
+	r.HandleFunc("/categories", GetCategories).Methods("GET")                                       // - know admin middleware works
+	r.HandleFunc("/category/{categoryid}", GetCategory).Methods("GET")                              // -
+	r.HandleFunc("/categories", isAuthorized(isAdmin(CreateCategory))).Methods("POST")              // -
+	r.HandleFunc("/category/{categoryid}", isAuthorized(isAdmin(UpdateCategory))).Methods("PUT")    // -
+	r.HandleFunc("/category/{categoryid}", isAuthorized(isAdmin(DeleteCategory))).Methods("DELETE") // -
 
 	// ========================== Orders ==============================
-	r.HandleFunc("/orders", PlaceOrder).Methods("POST")                                    // TBD BUTINA
-	r.HandleFunc("/orders/{ordernumber}", isAdmin(ChangeOrder)).Methods("PUT")             // TBD
-	r.HandleFunc("/orders/{ordernumber}/cancel", isAuthorized(CancelOrder)).Methods("PUT") // TBD
-	r.HandleFunc("/orders", isAuthorized(GetOrders)).Methods("GET")                        // -
+	r.HandleFunc("/orders", PlaceOrder).Methods("POST")                                      // TBD BUTINA
+	r.HandleFunc("/orders/{ordernumber}", isAuthorized(isAdmin(ChangeOrder))).Methods("PUT") // TBD
+	r.HandleFunc("/orders/{ordernumber}/cancel", isAuthorized(CancelOrder)).Methods("PUT")   // TBD
+	r.HandleFunc("/orders", isAuthorized(GetOrders)).Methods("GET")                          // -
 
 	// ========================== Couriers ==============================
-	r.HandleFunc("/couriers", isAdmin(GetCouriers)).Methods("GET")               // Tested
-	r.HandleFunc("/courier/deliveries", isCourier(GetDeliveries)).Methods("GET") // Tested
-	r.HandleFunc("/courier/pickups", isCourier(GetPickups)).Methods("GET")       // - same as deliveries
+	r.HandleFunc("/couriers", isAuthorized(isAdmin(GetCouriers))).Methods("GET")               // Tested
+	r.HandleFunc("/courier/deliveries", isAuthorized(isCourier(GetDeliveries))).Methods("GET") // Tested
+	r.HandleFunc("/courier/pickups", isAuthorized(isCourier(GetPickups))).Methods("GET")       // - same as deliveries
 
 	a.Router = r
 	return a

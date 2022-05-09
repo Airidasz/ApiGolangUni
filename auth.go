@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/pbkdf2"
-	"gorm.io/gorm/clause"
 )
 
 type permissionValidator func(string) bool
@@ -33,7 +32,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	var userDatabaseData User
 
 	// Finds user by email in database, if no user, then returns "bad request"
-	err := db.Take(&userDatabaseData, "name = ?", requestData.Name).Error
+	err := db.Take(&userDatabaseData, "name = ? and temporary = ?", requestData.Name, false).Error
 	if err != nil {
 		Response(w, http.StatusBadRequest, errorMSG)
 		return
@@ -223,7 +222,7 @@ func PerformUserDataChecks(name string, email string, password string, repeatedP
 
 	err = CheckEmailAvailability(email)
 	if err != nil {
-		return http.StatusBadRequest, err
+		return http.StatusConflict, err
 	}
 
 	err = CheckIfPasswordValid(password, repeatedPassword)
@@ -264,7 +263,7 @@ func MakeTokens(w http.ResponseWriter, user User) (string, string) {
 	}
 	accessToken, _ := GenerateToken(claims)
 	// http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode, Secure: true})
-	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60000})
+	http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60})
 
 	claims["exp"] = time.Now().Add(time.Hour * 24 * 7).Unix()
 	refreshToken, _ := GenerateToken(claims)
@@ -308,30 +307,11 @@ func isFarmer(next http.HandlerFunc) http.HandlerFunc {
 
 func CheckPermissions(next http.HandlerFunc, hasPermissions permissionValidator) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		accessTokenCookie, err := r.Cookie("Access-Token")
-		if err == nil {
-			claims := jwt.MapClaims{}
-			token, err := jwt.ParseWithClaims(accessTokenCookie.Value, claims, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("įvyko klaida. bandykite dar kartą")
-				}
-				return signKey, nil
-			})
+		permissions := GetClaim("permissions", r)
 
-			if err != nil {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-
-			if token.Valid {
-				permissions := claims["permissions"].(string)
-
-				if hasPermissions(permissions) {
-					ctx := context.WithValue(r.Context(), ctxKey{}, claims)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
+		if permissions != nil && hasPermissions(*permissions) {
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		w.WriteHeader(http.StatusUnauthorized)
@@ -344,7 +324,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 		productName := params["product"]
 
 		var product Product
-		err := db.Where("codename = ?", productName).First(&product).Error
+		err := db.Preload("Shop").Preload("Shop.User").First(&product, "codename = ?", productName).Error
 
 		if err != nil {
 			Response(w, http.StatusBadRequest, "produkto rasti nepavyko")
@@ -353,10 +333,7 @@ func isProductOwner(next http.HandlerFunc) http.HandlerFunc {
 
 		email := GetClaim("email", r)
 
-		var shop Shop
-		db.Preload(clause.Associations).Take(&shop, "id = ?", product.ShopID)
-
-		if email == nil || shop.User.Email != *email {
+		if email == nil || product.Shop.User.Email != *email {
 			Response(w, http.StatusUnauthorized, "jūs negalite koreguoti šio produkto")
 			return
 		}

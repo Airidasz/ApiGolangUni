@@ -27,7 +27,7 @@ type Shop struct {
 	Name        *string    `json:"name" gorm:"size:100;not null"`
 	Address     *string    `json:"address" gorm:"size:100"`
 	Codename    string     `json:"codename" gorm:"size:100;not null;index"`
-	Description *string    `json:"description"`
+	Description *string    `json:"description" gorm:"default:''"`
 	User        User       `json:"-" gorm:"not null"`
 	UserID      string     `json:"-"`
 	Locations   []Location `json:"locations" gorm:"constraint:OnDelete:CASCADE;"`
@@ -40,7 +40,7 @@ type Product struct {
 	DeletedAt     gorm.DeletedAt  `json:"-" gorm:"index"`
 	Name          *string         `json:"name" gorm:"size:100;not null"`
 	Codename      string          `json:"codename" gorm:"size:100;not null;index"`
-	Description   *string         `json:"description"`
+	Description   *string         `json:"description"gorm:"default:''"`
 	Image         string          `json:"image" gorm:"size:500"`
 	Price         decimal.Decimal `json:"price" sql:"type:decimal(20,8);"  gorm:"not null"`
 	Public        bool            `json:"public"`
@@ -73,7 +73,7 @@ type Order struct {
 	OrderedProducts []OrderedProduct `json:"orderedProducts"`
 	ShopOrders      []ShopOrder      `json:"shopOrders"`
 	TotalPrice      decimal.Decimal  `json:"totalPrice"`
-	DeliveredBy     string           `json:"deliveredBy" gorm:"size:40"`
+	DeliveredBy     string           `json:"-" gorm:"size:40"`
 	Deliverer       User             `json:"deliverer" gorm:"foreignKey:DeliveredBy"`
 	PickupDate      *time.Time       `json:"pickupDate"`
 	CancelIfMissing bool             `json:"cancelIfMissing"`
@@ -88,8 +88,7 @@ type ShopOrder struct {
 	ShopID          string           `json:"-" gorm:"not null;index"`
 	Status          int              `json:"status" gorm:"index"`
 	Message         string           `json:"message" gorm:"size:150"`
-	Closed          bool             `json:"closed"`
-	CollectedBy     string           `json:"collectedBy" gorm:"size:40"`
+	CollectedBy     string           `json:"-" gorm:"size:40"`
 	Collector       User             `json:"collector" gorm:"foreignKey:CollectedBy"`
 	OrderedProducts []OrderedProduct `json:"orderedProducts"`
 }

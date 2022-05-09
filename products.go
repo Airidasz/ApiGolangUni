@@ -166,12 +166,12 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 
 	var productCopy Product
 	if isEdit {
-		db.Preload("Categories").Where("codename = ?", productName).Take(&product)
+		db.Preload("Categories").Take(&product, "codename = ?", productName)
 		productCopy = product
 	}
 
 	// Name
-	if !isEdit && (request.Name == nil || len(*request.Name) == 0) {
+	if (request.Name != nil && len(*request.Name) == 0) || (!isEdit && request.Name == nil) {
 		Response(w, http.StatusBadRequest, "produkto vardas privalomas")
 		return
 	}
@@ -248,7 +248,7 @@ func AddEditProduct(w http.ResponseWriter, r *http.Request) {
 	product.ID = ""
 
 	if err = db.Create(&product).Error; err != nil {
-		Response(w, http.StatusBadRequest, "įvyko klaida bandant išsaugoti produktą")
+		Response(w, http.StatusInternalServerError, "įvyko klaida bandant išsaugoti produktą")
 		return
 	}
 
@@ -274,4 +274,16 @@ func DeleteProduct(w http.ResponseWriter, r *http.Request) {
 	}
 
 	OnProductChange(product)
+}
+
+func OnProductChange(product Product) {
+	if ProductIsOrdered(product.ID) {
+		product.BaseProductID = new(string)
+		*product.BaseProductID = product.ID
+		product.Public = false
+		db.Save(&product)
+		db.Delete(&product)
+	} else {
+		db.Unscoped().Delete(&product)
+	}
 }
