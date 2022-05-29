@@ -221,6 +221,17 @@ func ChangeOrder(w http.ResponseWriter, r *http.Request) {
 		Response(w, http.StatusBadRequest, "užsakymas nerastas")
 		return
 	}
+	var user User
+
+	email := GetClaim("email", r)
+	db.Take(&user, "email = ?", email)
+
+	admin := HasAdminPermissions(user.Permissions)
+
+	if !admin && order.DeliveredBy != user.ID {
+		Response(w, http.StatusBadRequest, "užsakymas nerastas")
+		return
+	}
 
 	if request.Status != nil {
 		order.Status = *request.Status

@@ -47,7 +47,7 @@ func (a *app) InitRouter() *app {
 
 	// ========================== Orders ==============================
 	r.HandleFunc("/orders", PlaceOrder).Methods("POST")                                      // TBD BUTINA
-	r.HandleFunc("/orders/{ordernumber}", isAuthorized(isAdmin(ChangeOrder))).Methods("PUT") // TBD
+	r.HandleFunc("/orders/{ordernumber}", isAuthorized(ChangeOrder)).Methods("PUT") // TBD
 	r.HandleFunc("/orders/{ordernumber}/cancel", isAuthorized(CancelOrder)).Methods("PUT")   // TBD
 	r.HandleFunc("/orders", isAuthorized(GetOrders)).Methods("GET")                          // -
 

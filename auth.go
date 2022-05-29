@@ -259,7 +259,7 @@ func MakeTokens(w http.ResponseWriter, user User) (string, string) {
 		"permissions": user.Permissions,
 		"isSet":       true, // For frontend
 		"shop":        user.ShopCodename,
-		"exp":         time.Now().Add(time.Hour).Unix(),
+		"exp":         time.Now().Add(time.Second * 59).Unix(),
 	}
 	accessToken, _ := GenerateToken(claims)
 	// http.SetCookie(w, &http.Cookie{Name: "Access-Token", Value: accessToken, MaxAge: 60, SameSite: http.SameSiteNoneMode, Secure: true})
